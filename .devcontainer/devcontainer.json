@@ -1,14 +1,21 @@
 {
   "name": "Home Assistant Integration Development",
-  "image": "ghcr.io/home-assistant/devcontainer:latest",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
 
-  "appPort": ["8123:8123"],
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
 
-  "postCreateCommand": "container install",
+  "forwardPorts": [8123],
 
-  "mounts": [
-    "source=${localWorkspaceFolder}/custom_components,target=/workspaces/core/config/custom_components,type=bind"
-  ],
+  "portsAttributes": {
+    "8123": {
+      "label": "Home Assistant",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "postCreateCommand": "pip install --upgrade pip && pip install homeassistant",
 
   "customizations": {
     "vscode": {
@@ -16,6 +23,7 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "ms-python.black-formatter",
+        "ms-python.debugpy",
         "github.vscode-pull-request-github",
         "redhat.vscode-yaml",
         "visualstudioexptteam.vscodeintellicode"
@@ -24,10 +32,7 @@
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.linting.pylintEnabled": true,
         "python.linting.enabled": true,
-        "python.formatting.provider": "none",
-        "editor.formatOnPaste": false,
         "editor.formatOnSave": true,
-        "editor.formatOnType": true,
         "files.trimTrailingWhitespace": true,
         "[python]": {
           "editor.defaultFormatter": "ms-python.black-formatter",
@@ -43,18 +48,5 @@
     }
   },
 
-  "forwardPorts": [8123],
-
-  "portsAttributes": {
-    "8123": {
-      "label": "Home Assistant",
-      "onAutoForward": "notify"
-    }
-  },
-
-  "remoteUser": "vscode",
-
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
-  }
+  "remoteUser": "vscode"
 }
