@@ -1,0 +1,11 @@
+{
+  "domain": "heating_oil_monitor",
+  "name": "Heating Oil Monitor",
+  "codeowners": ["@azebro"],
+  "config_flow": true,
+  "documentation": "https://github.com/azebro/heating_oil_monitor",
+  "issue_tracker": "https://github.com/azebro/heating_oil_monitor/issues",
+  "requirements": [],
+  "version": "0.1.0",
+  "iot_class": "cloud_polling"
+}

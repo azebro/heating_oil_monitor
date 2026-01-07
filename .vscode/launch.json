@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Home Assistant",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "homeassistant",
+      "justMyCode": false,
+      "args": ["--debug", "-c", "config", "--skip-pip"],
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Home Assistant (Safe Mode)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "homeassistant",
+      "justMyCode": false,
+      "args": ["--debug", "-c", "config", "--skip-pip", "--safe-mode"],
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Home Assistant (Current File)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  ]
+}

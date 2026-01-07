@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up My Integration",
+        "description": "Enter your connection details",
+        "data": {
+          "host": "Host",
+          "api_key": "API Key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect, please check your settings",
+      "invalid_auth": "Invalid API key",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}

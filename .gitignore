@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Home Assistant
+config/.HA_VERSION
+config/home-assistant.log
+config/home-assistant_v2.db*
+config/.storage/
+config/deps/
+config/tts/
+config/.cloud/
+config/.google.token
+config/secrets.yaml
+
+# Keep essential config files
+!config/configuration.yaml
+!config/automations.yaml
+!config/scripts.yaml
+!config/scenes.yaml
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.bak
+*~

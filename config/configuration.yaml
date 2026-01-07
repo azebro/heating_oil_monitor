@@ -1,0 +1,30 @@
+# Loads default set of integrations
+default_config:
+
+# Enable the frontend
+frontend:
+
+# Enable the API
+api:
+
+# Enable logging
+logger:
+  default: info
+  logs:
+    custom_components.heating_oil_monitor: debug
+    homeassistant.loader: debug
+    homeassistant.components.websocket_api: debug
+
+# Text to speech
+tts:
+  - platform: google_translate
+
+# Development mode settings
+homeassistant:
+  # Allowlist external directories for development
+  allowlist_external_dirs:
+    - /config/custom_components
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
