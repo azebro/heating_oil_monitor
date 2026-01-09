@@ -43,3 +43,4 @@ docker-compose.override.yml
 *~
 config/.ha_run.lock
 config/home-assistant.log.1
+config/.ha_run.lock
