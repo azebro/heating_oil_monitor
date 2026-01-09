@@ -1,4 +1,6 @@
 {
+  "title": "Heating Oil Monitor",
+  "icon": "mdi:tanker-truck",
   "config": {
     "step": {
       "user": {
