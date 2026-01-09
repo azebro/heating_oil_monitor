@@ -1,4 +1,5 @@
-"""Config flow for My Integration."""
+"""Config flow for Heating Oil Monitor integration."""
+
 from __future__ import annotations
 
 import logging
@@ -7,39 +8,29 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import selector
+import homeassistant.helpers.config_validation as cv
 
-from .const import DOMAIN, CONF_HOST, CONF_API_KEY
+from .const import (
+    DOMAIN,
+    CONF_AIR_GAP_SENSOR,
+    CONF_TANK_DIAMETER,
+    CONF_TANK_LENGTH,
+    CONF_REFILL_THRESHOLD,
+    CONF_NOISE_THRESHOLD,
+    CONF_CONSUMPTION_DAYS,
+    DEFAULT_REFILL_THRESHOLD,
+    DEFAULT_NOISE_THRESHOLD,
+    DEFAULT_CONSUMPTION_DAYS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST, default="example.com"): str,
-        vol.Required(CONF_API_KEY): str,
-    }
-)
 
-
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-    
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-    # TODO: Add actual validation logic here
-    # For example, try to connect to the API
-    
-    if len(data[CONF_API_KEY]) < 10:
-        raise InvalidAuth
-    
-    # Return info that you want to store in the config entry.
-    return {"title": f"My Integration ({data[CONF_HOST]})"}
-
-
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for My Integration."""
+class HeatingOilMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Heating Oil Monitor."""
 
     VERSION = 1
 
@@ -47,29 +38,185 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-        errors: dict[str, str] = {}
-        
-        if user_input is not None:
-            try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=user_input)
+        errors = {}
 
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        if user_input is not None:
+            # Validate that the sensor exists
+            if not self.hass.states.get(user_input[CONF_AIR_GAP_SENSOR]):
+                errors[CONF_AIR_GAP_SENSOR] = "sensor_not_found"
+            else:
+                # Check if already configured
+                await self.async_set_unique_id(user_input[CONF_AIR_GAP_SENSOR])
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
+                    title=f"Heating Oil Monitor",
+                    data=user_input,
+                )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_AIR_GAP_SENSOR): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(CONF_TANK_DIAMETER, default=150): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=500,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Required(CONF_TANK_LENGTH, default=200): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=1000,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_THRESHOLD, default=DEFAULT_REFILL_THRESHOLD
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=10000,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="L",
+                    )
+                ),
+                vol.Optional(
+                    CONF_NOISE_THRESHOLD, default=DEFAULT_NOISE_THRESHOLD
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=100,
+                        step=0.1,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Optional(
+                    CONF_CONSUMPTION_DAYS, default=DEFAULT_CONSUMPTION_DAYS
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=90,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="days",
+                    )
+                ),
+            }
         )
 
+        return self.async_show_form(
+            step_id="user",
+            data_schema=data_schema,
+            errors=errors,
+        )
 
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
+    async def async_step_import(self, import_config: dict[str, Any]) -> FlowResult:
+        """Handle import from configuration.yaml."""
+        return await self.async_step_user(import_config)
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return HeatingOilMonitorOptionsFlow(config_entry)
 
 
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
+class HeatingOilMonitorOptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow for Heating Oil Monitor."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            # Update the config entry with new data
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={**self.config_entry.data, **user_input},
+            )
+            return self.async_create_entry(title="", data={})
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_AIR_GAP_SENSOR,
+                    default=self.config_entry.data.get(CONF_AIR_GAP_SENSOR),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(
+                    CONF_TANK_DIAMETER,
+                    default=self.config_entry.data.get(CONF_TANK_DIAMETER, 150),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=500,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Required(
+                    CONF_TANK_LENGTH,
+                    default=self.config_entry.data.get(CONF_TANK_LENGTH, 200),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=1000,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_THRESHOLD,
+                    default=self.config_entry.data.get(
+                        CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=10000,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="L",
+                    )
+                ),
+                vol.Optional(
+                    CONF_NOISE_THRESHOLD,
+                    default=self.config_entry.data.get(
+                        CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=100,
+                        step=0.1,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="cm",
+                    )
+                ),
+                vol.Optional(
+                    CONF_CONSUMPTION_DAYS,
+                    default=self.config_entry.data.get(
+                        CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=90,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="days",
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=data_schema,
+        )

@@ -1,0 +1,7 @@
+heating_oil_monitor:
+  air_gap_sensor: sensor.heating_oil_meter_air_gap
+  tank_diameter_cm: 150  # Your tank diameter
+  tank_length_cm: 200    # Your tank length
+  refill_threshold_liters: 100  # Minimum increase to count as refill
+  noise_threshold_cm: 1  # Ignore fluctuations smaller than this
+  consumption_calculation_days: 7  # Days to average for consumption & days-to-empty calculation

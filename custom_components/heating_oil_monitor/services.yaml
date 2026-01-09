@@ -1,0 +1,8 @@
+record_refill:
+  name: Record Refill
+  description: Manually record a heating oil refill
+  fields:
+    volume:
+      name: Volume
+      description: Volume added in liters (optional)
+      example: 1000
