@@ -95,7 +95,7 @@ async def async_setup_entry(
     sensors = [
         HeatingOilVolumeSensor(coordinator),
         HeatingOilDailyConsumptionSensor(coordinator),
-        HeatingOilDailyConsumptionEnergySensor(coordinator),  # NEW SENSOR
+        HeatingOilDailyConsumptionEnergySensor(coordinator),
         HeatingOilMonthlyConsumptionSensor(coordinator),
         HeatingOilDaysUntilEmptySensor(coordinator),
         HeatingOilLastRefillSensor(coordinator),
@@ -144,7 +144,7 @@ async def async_setup_platform(
     sensors = [
         HeatingOilVolumeSensor(coordinator),
         HeatingOilDailyConsumptionSensor(coordinator),
-        HeatingOilDailyConsumptionEnergySensor(coordinator),  # NEW SENSOR
+        HeatingOilDailyConsumptionEnergySensor(coordinator),
         HeatingOilMonthlyConsumptionSensor(coordinator),
         HeatingOilDaysUntilEmptySensor(coordinator),
         HeatingOilLastRefillSensor(coordinator),
@@ -192,6 +192,164 @@ class HeatingOilCoordinator:
         # Subscribe to manual refill events
         hass.bus.async_listen(f"{DOMAIN}_refill", self._handle_manual_refill)
 
+        # Initialize volume from current sensor reading
+        self._initialize_volume()
+
+        # Restore consumption history from database
+        hass.async_create_task(self._restore_consumption_history())
+
+    def _initialize_volume(self) -> None:
+        """Initialize volume from current air gap sensor reading."""
+        state = self.hass.states.get(self.air_gap_sensor)
+        if state and state.state not in ("unknown", "unavailable"):
+            try:
+                air_gap = float(state.state)
+                self._current_volume = calculate_volume(
+                    air_gap, self.tank_diameter, self.tank_length
+                )
+                self._previous_volume = self._current_volume
+                _LOGGER.info(
+                    f"Initialized volume from sensor: {self._current_volume} L"
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(f"Could not initialize volume from sensor: {e}")
+
+    async def _restore_consumption_history(self) -> None:
+        """Restore consumption history from Home Assistant recorder."""
+        try:
+            from homeassistant.components.recorder import get_instance
+
+            # Get the recorder instance
+            recorder = get_instance(self.hass)
+            if not recorder or not recorder.engine:
+                _LOGGER.warning(
+                    "Recorder not available, cannot restore consumption history"
+                )
+                return
+
+            # Try to find the volume sensor entity_id
+            possible_entity_ids = [
+                "sensor.heating_oil_volume",
+                f"sensor.{DOMAIN}_volume",
+            ]
+
+            volume_sensor_id = None
+            for entity_id in possible_entity_ids:
+                if self.hass.states.get(entity_id):
+                    volume_sensor_id = entity_id
+                    _LOGGER.info(f"Found volume sensor: {volume_sensor_id}")
+                    break
+
+            if not volume_sensor_id:
+                _LOGGER.warning(
+                    f"Could not find volume sensor. Tried: {possible_entity_ids}. "
+                    f"Available sensors: {[s for s in self.hass.states.async_entity_ids() if 'heating_oil' in s]}"
+                )
+                return
+
+            # Get historical states for the last 60 days
+            end_time = dt_util.now()
+            start_time = end_time - timedelta(days=60)
+
+            _LOGGER.info(
+                f"Attempting to restore consumption history for {volume_sensor_id} "
+                f"from {start_time} to {end_time}"
+            )
+
+            # Query the recorder for historical states
+            from homeassistant.components.recorder.history import (
+                state_changes_during_period,
+            )
+
+            states = await recorder.async_add_executor_job(
+                state_changes_during_period,
+                self.hass,
+                start_time,
+                end_time,
+                volume_sensor_id,
+                False,
+                False,
+                1000,  # limit
+            )
+
+            if not states or volume_sensor_id not in states:
+                _LOGGER.info(
+                    f"No historical states found for {volume_sensor_id}. "
+                    f"This is normal if the sensor was just created."
+                )
+                return
+
+            # Process states to rebuild consumption history
+            volume_states = states[volume_sensor_id]
+            _LOGGER.info(f"Found {len(volume_states)} historical states")
+
+            previous_volume = None
+            consumption_count = 0
+
+            for idx, state in enumerate(volume_states):
+                if state.state in ("unknown", "unavailable"):
+                    continue
+
+                try:
+                    current_volume = float(state.state)
+
+                    if previous_volume is not None:
+                        volume_change = current_volume - previous_volume
+
+                        # Only record decreases (consumption) that are not refills
+                        if (
+                            volume_change < 0
+                            and abs(volume_change) < self.refill_threshold
+                        ):
+                            consumption = abs(volume_change)
+
+                            # Add to consumption history
+                            self._consumption_history.append(
+                                {
+                                    "timestamp": state.last_updated,
+                                    "consumption": consumption,
+                                }
+                            )
+                            consumption_count += 1
+
+                    previous_volume = current_volume
+
+                except (ValueError, TypeError) as e:
+                    _LOGGER.debug(f"Error processing state {idx}: {e}")
+                    continue
+
+            # Keep only entries from last 60 days
+            cutoff = dt_util.now() - timedelta(days=60)
+            self._consumption_history = [
+                entry
+                for entry in self._consumption_history
+                if entry["timestamp"] > cutoff
+            ]
+
+            _LOGGER.info(
+                f"✓ HISTORY RESTORED: {len(self._consumption_history)} consumption entries "
+                f"from last 60 days (processed {len(volume_states)} states)"
+            )
+
+            # Log today's consumption
+            today_midnight = dt_util.start_of_local_day()
+            today_entries = [
+                entry
+                for entry in self._consumption_history
+                if entry["timestamp"] >= today_midnight
+            ]
+            today_total = sum(e["consumption"] for e in today_entries)
+
+            _LOGGER.info(
+                f"Today's data: {len(today_entries)} entries, Total: {today_total:.2f} L"
+            )
+
+            # Trigger update of all sensors
+            self._notify_listeners()
+
+        except Exception as e:
+            _LOGGER.error(f"Error restoring consumption history: {e}", exc_info=True)
+
     @callback
     async def _handle_air_gap_change(self, event: Event) -> None:
         """Handle air gap sensor state change."""
@@ -221,6 +379,11 @@ class HeatingOilCoordinator:
 
         volume_change = new_volume - self._current_volume
 
+        _LOGGER.debug(
+            f"Volume change detected: {volume_change:.2f} L "
+            f"({self._current_volume:.2f} → {new_volume:.2f} L)"
+        )
+
         # Check for refill (significant increase)
         if volume_change > self.refill_threshold:
             refill_volume = volume_change
@@ -233,7 +396,7 @@ class HeatingOilCoordinator:
 
         # Ignore small increases (noise/temperature)
         if volume_change > 0 and volume_change < self.noise_threshold:
-            _LOGGER.debug(f"Ignoring small increase: {volume_change:.2f} cm")
+            _LOGGER.debug(f"Ignoring small increase: {volume_change:.2f} L")
             return
 
         # Ignore unexpected increases
@@ -308,7 +471,6 @@ class HeatingOilCoordinator:
                 await self._record_refill(volume, volume)
         else:
             # No volume provided - just mark refill at current reading
-            # Calculate what was added based on tank capacity assumption
             if self._current_volume is not None:
                 # Assume tank was refilled to current level from previous level
                 refill_amount = None  # We don't know how much was added
@@ -337,49 +499,59 @@ class HeatingOilCoordinator:
             }
         )
 
+        _LOGGER.info(
+            f"Consumption recorded: {consumption:.2f} L, "
+            f"Total history entries: {len(self._consumption_history)}"
+        )
+
         # Keep only last 60 days of history
         cutoff = dt_util.now() - timedelta(days=60)
         self._consumption_history = [
             entry for entry in self._consumption_history if entry["timestamp"] > cutoff
         ]
 
-    def get_daily_consumption(self) -> float | None:
-        """Calculate average daily consumption."""
+    def get_daily_consumption(self) -> float:
+        """Calculate consumption for today (since midnight)."""
         if not self._consumption_history:
-            return None
+            return 0.0
 
-        cutoff = dt_util.now() - timedelta(days=1)
-        recent = [
+        # Get today's midnight in local time
+        today_midnight = dt_util.start_of_local_day()
+
+        # Sum all consumption since midnight today
+        today_consumption = [
             entry["consumption"]
             for entry in self._consumption_history
-            if entry["timestamp"] > cutoff
+            if entry["timestamp"] >= today_midnight
         ]
 
-        return round(sum(recent), 2) if recent else None
+        return round(sum(today_consumption), 2) if today_consumption else 0.0
 
-    def get_daily_consumption_kwh(self) -> float | None:
-        """Calculate daily energy consumption in kWh."""
+    def get_daily_consumption_kwh(self) -> float:
+        """Calculate energy consumption for today (since midnight) in kWh."""
         daily_liters = self.get_daily_consumption()
-        if daily_liters is None:
-            return None
 
         # Convert liters to kWh using kerosene energy content
         kwh = daily_liters * KEROSENE_KWH_PER_LITER
         return round(kwh, 2)
 
-    def get_monthly_consumption(self) -> float | None:
-        """Calculate average monthly consumption."""
+    def get_monthly_consumption(self) -> float:
+        """Calculate consumption for current month (since start of month)."""
         if not self._consumption_history:
-            return None
+            return 0.0
 
-        cutoff = dt_util.now() - timedelta(days=30)
-        recent = [
+        # Get first day of current month at midnight
+        now = dt_util.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Sum all consumption since start of month
+        month_consumption = [
             entry["consumption"]
             for entry in self._consumption_history
-            if entry["timestamp"] > cutoff
+            if entry["timestamp"] >= month_start
         ]
 
-        return round(sum(recent), 2) if recent else None
+        return round(sum(month_consumption), 2) if month_consumption else 0.0
 
     def get_days_until_empty(self) -> int | None:
         """Estimate days until tank is empty based on recent consumption."""
@@ -400,22 +572,20 @@ class HeatingOilCoordinator:
         if not recent:
             return None
 
-        # Calculate actual days in the period (in case we have less than consumption_days of data)
-        if self._consumption_history:
-            oldest_entry = min(
-                (
-                    entry
-                    for entry in self._consumption_history
-                    if entry["timestamp"] > cutoff
-                ),
-                key=lambda x: x["timestamp"],
-                default=None,
-            )
-            if oldest_entry:
-                days_in_period = (dt_util.now() - oldest_entry["timestamp"]).days
-                if days_in_period < 1:
-                    days_in_period = 1  # Minimum 1 day
-            else:
+        # Calculate actual days in the period
+        oldest_entry = min(
+            (
+                entry
+                for entry in self._consumption_history
+                if entry["timestamp"] > cutoff
+            ),
+            key=lambda x: x["timestamp"],
+            default=None,
+        )
+
+        if oldest_entry:
+            days_in_period = (dt_util.now() - oldest_entry["timestamp"]).days
+            if days_in_period < 1:
                 days_in_period = 1
         else:
             days_in_period = 1
@@ -447,7 +617,7 @@ class HeatingOilVolumeSensor(RestoreEntity, SensorEntity):
         self._attr_name = "Heating Oil Volume"
         self._attr_unique_id = f"{DOMAIN}_volume"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:oil"
 
@@ -457,6 +627,11 @@ class HeatingOilVolumeSensor(RestoreEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
         return self._coordinator._current_volume
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._current_volume is not None
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
@@ -470,8 +645,8 @@ class HeatingOilVolumeSensor(RestoreEntity, SensorEntity):
                 pass
 
 
-class HeatingOilDailyConsumptionSensor(SensorEntity):
-    """Sensor for daily heating oil consumption."""
+class HeatingOilDailyConsumptionSensor(RestoreEntity, SensorEntity):
+    """Sensor for daily heating oil consumption (today since midnight)."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
         """Initialize the sensor."""
@@ -479,20 +654,51 @@ class HeatingOilDailyConsumptionSensor(SensorEntity):
         self._attr_name = "Heating Oil Daily Consumption"
         self._attr_unique_id = f"{DOMAIN}_daily_consumption"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:chart-line"
+        self._last_value: float = 0.0
 
         coordinator.add_listener(self.async_write_ha_state)
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         """Return the state of the sensor."""
-        return self._coordinator.get_daily_consumption()
+        value = self._coordinator.get_daily_consumption()
+        self._last_value = value
+        return value
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._current_volume is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        today_midnight = dt_util.start_of_local_day()
+        return {
+            "period_start": today_midnight.isoformat(),
+            "period_type": "today",
+            "description": "Consumption since midnight today",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._last_value = float(last_state.state)
+                _LOGGER.info(
+                    f"Restored 'Daily Consumption' last value: {self._last_value} L"
+                )
+            except (ValueError, TypeError):
+                pass
 
 
-class HeatingOilDailyConsumptionEnergySensor(SensorEntity):
-    """Sensor for daily heating oil energy consumption in kWh."""
+class HeatingOilDailyConsumptionEnergySensor(RestoreEntity, SensorEntity):
+    """Sensor for daily heating oil energy consumption in kWh (today since midnight)."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
         """Initialize the sensor."""
@@ -500,32 +706,59 @@ class HeatingOilDailyConsumptionEnergySensor(SensorEntity):
         self._attr_name = "Heating Oil Daily Energy Consumption"
         self._attr_unique_id = f"{DOMAIN}_daily_consumption_kwh"
         self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_icon = "mdi:lightning-bolt"
+        self._last_value: float = 0.0
 
         coordinator.add_listener(self.async_write_ha_state)
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         """Return the state of the sensor."""
-        return self._coordinator.get_daily_consumption_kwh()
+        value = self._coordinator.get_daily_consumption_kwh()
+        self._last_value = value
+        return value
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._current_volume is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes."""
-        attrs = {}
-        attrs["conversion_factor"] = f"{KEROSENE_KWH_PER_LITER} kWh/L"
-
+        today_midnight = dt_util.start_of_local_day()
         daily_liters = self._coordinator.get_daily_consumption()
-        if daily_liters:
+
+        attrs = {
+            "conversion_factor": f"{KEROSENE_KWH_PER_LITER} kWh/L",
+            "period_start": today_midnight.isoformat(),
+            "period_type": "today",
+            "description": "Energy consumption since midnight today",
+        }
+
+        if daily_liters and daily_liters > 0:
             attrs["daily_consumption_liters"] = daily_liters
 
         return attrs
 
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
 
-class HeatingOilMonthlyConsumptionSensor(SensorEntity):
-    """Sensor for monthly heating oil consumption."""
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._last_value = float(last_state.state)
+                _LOGGER.info(
+                    f"Restored 'Daily Energy Consumption' last value: {self._last_value} kWh"
+                )
+            except (ValueError, TypeError):
+                pass
+
+
+class HeatingOilMonthlyConsumptionSensor(RestoreEntity, SensorEntity):
+    """Sensor for monthly heating oil consumption (this month since 1st)."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
         """Initialize the sensor."""
@@ -533,19 +766,51 @@ class HeatingOilMonthlyConsumptionSensor(SensorEntity):
         self._attr_name = "Heating Oil Monthly Consumption"
         self._attr_unique_id = f"{DOMAIN}_monthly_consumption"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:chart-bar"
+        self._last_value: float = 0.0
 
         coordinator.add_listener(self.async_write_ha_state)
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         """Return the state of the sensor."""
-        return self._coordinator.get_monthly_consumption()
+        value = self._coordinator.get_monthly_consumption()
+        self._last_value = value
+        return value
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._current_volume is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        now = dt_util.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return {
+            "period_start": month_start.isoformat(),
+            "period_type": "current_month",
+            "description": "Consumption since start of month",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._last_value = float(last_state.state)
+                _LOGGER.info(
+                    f"Restored 'Monthly Consumption' last value: {self._last_value} L"
+                )
+            except (ValueError, TypeError):
+                pass
 
 
-class HeatingOilDaysUntilEmptySensor(SensorEntity):
+class HeatingOilDaysUntilEmptySensor(RestoreEntity, SensorEntity):
     """Sensor for estimated days until tank is empty."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
@@ -555,13 +820,34 @@ class HeatingOilDaysUntilEmptySensor(SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_days_until_empty"
         self._attr_native_unit_of_measurement = UnitOfTime.DAYS
         self._attr_icon = "mdi:calendar-clock"
+        self._last_calculated_value: int | None = None
 
         coordinator.add_listener(self.async_write_ha_state)
 
     @property
     def native_value(self) -> int | None:
         """Return the state of the sensor."""
-        return self._coordinator.get_days_until_empty()
+        # Try to get current calculation
+        calculated_value = self._coordinator.get_days_until_empty()
+
+        if calculated_value is not None:
+            # We have a fresh calculation, store it
+            self._last_calculated_value = calculated_value
+            return calculated_value
+
+        # No fresh calculation available, return last known value
+        return self._last_calculated_value
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        # Available if we have a volume reading and either:
+        # - Current calculation is possible, OR
+        # - We have a last known value
+        return self._coordinator._current_volume is not None and (
+            self._coordinator.get_days_until_empty() is not None
+            or self._last_calculated_value is not None
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -600,7 +886,30 @@ class HeatingOilDaysUntilEmptySensor(SensorEntity):
                     attrs["average_daily_consumption"] = round(average_daily, 2)
                     attrs["days_of_data"] = days_in_period
 
+        # Add info about whether this is a live calculation or restored value
+        if (
+            self._coordinator.get_days_until_empty() is None
+            and self._last_calculated_value is not None
+        ):
+            attrs["status"] = "Using last calculated value (no recent consumption data)"
+        else:
+            attrs["status"] = "Live calculation"
+
         return attrs
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in ("unknown", "unavailable"):
+                try:
+                    self._last_calculated_value = int(float(last_state.state))
+                    _LOGGER.info(
+                        f"Restored 'Days Until Empty' last value: {self._last_calculated_value} days"
+                    )
+                except (ValueError, TypeError):
+                    pass
 
 
 class HeatingOilLastRefillSensor(RestoreEntity, SensorEntity):
@@ -620,6 +929,11 @@ class HeatingOilLastRefillSensor(RestoreEntity, SensorEntity):
     def native_value(self) -> datetime | None:
         """Return the state of the sensor."""
         return self._coordinator._last_refill_date
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._last_refill_date is not None
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
@@ -644,7 +958,7 @@ class HeatingOilLastRefillVolumeSensor(RestoreEntity, SensorEntity):
         self._attr_name = "Heating Oil Last Refill Volume"
         self._attr_unique_id = f"{DOMAIN}_last_refill_volume"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:gas-station"
 
@@ -654,6 +968,11 @@ class HeatingOilLastRefillVolumeSensor(RestoreEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
         return self._coordinator._last_refill_volume
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return self._coordinator._last_refill_volume is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
