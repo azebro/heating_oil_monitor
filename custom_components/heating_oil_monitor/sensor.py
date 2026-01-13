@@ -122,6 +122,12 @@ async def async_setup_entry(
         CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
     )
 
+    _LOGGER.info(
+        f"Setup config: temperature_sensor={temperature_sensor}, "
+        f"reference_temperature={reference_temperature}, "
+        f"all config keys={list(config.keys())}"
+    )
+
     if not all([air_gap_sensor, tank_diameter, tank_length]):
         _LOGGER.error("Missing required configuration")
         return
@@ -150,7 +156,14 @@ async def async_setup_entry(
 
     # Add normalized volume sensor if temperature sensor is configured
     if temperature_sensor:
+        _LOGGER.info(
+            f"Adding normalized volume sensor with temperature sensor: {temperature_sensor}"
+        )
         sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
+    else:
+        _LOGGER.info(
+            "No temperature sensor configured, normalized volume sensor will not be added"
+        )
 
     async_add_entities(sensors, True)
 
