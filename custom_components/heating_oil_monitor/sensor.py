@@ -1179,7 +1179,8 @@ class HeatingOilNormalizedVolumeSensor(RestoreEntity, SensorEntity):
         """Return additional attributes."""
         attrs = {
             "reference_temperature": self._coordinator.reference_temperature,
-            "thermal_expansion_coefficient": THERMAL_EXPANSION_COEFFICIENT,
+            "thermal_expansion_coefficient": f"{THERMAL_EXPANSION_COEFFICIENT:.5f}",
+            "thermal_expansion_percent": f"{THERMAL_EXPANSION_COEFFICIENT * 100:.3f}%",
         }
 
         if self._coordinator._current_volume is not None:
