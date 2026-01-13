@@ -12,7 +12,9 @@
           "tank_length_cm": "Tank Length (cm)",
           "refill_threshold_liters": "Refill Detection Threshold (L)",
           "noise_threshold_cm": "Noise Filter Threshold (cm)",
-          "consumption_calculation_days": "Consumption Calculation Period (days)"
+          "consumption_calculation_days": "Consumption Calculation Period (days)",
+          "temperature_sensor": "Temperature Sensor (Optional)",
+          "reference_temperature": "Reference Temperature (°C)"
         },
         "data_description": {
           "air_gap_sensor": "Select the sensor that measures the air gap from the top of the tank",
@@ -20,7 +22,9 @@
           "tank_length_cm": "The length of your cylindrical tank in centimeters",
           "refill_threshold_liters": "Minimum volume increase (in liters) to automatically detect a refill",
           "noise_threshold_cm": "Ignore volume changes smaller than this (filters temperature fluctuations)",
-          "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations"
+          "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations",
+          "temperature_sensor": "Temperature sensor for thermal expansion compensation (recommended for outdoor tanks)",
+          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)"
         }
       }
     },
@@ -42,7 +46,9 @@
           "tank_length_cm": "Tank Length (cm)",
           "refill_threshold_liters": "Refill Detection Threshold (L)",
           "noise_threshold_cm": "Noise Filter Threshold (cm)",
-          "consumption_calculation_days": "Consumption Calculation Period (days)"
+          "consumption_calculation_days": "Consumption Calculation Period (days)",
+          "temperature_sensor": "Temperature Sensor (Optional)",
+          "reference_temperature": "Reference Temperature (°C)"
         },
         "data_description": {
           "air_gap_sensor": "Select the sensor that measures the air gap from the top of the tank",
@@ -50,7 +56,9 @@
           "tank_length_cm": "The length of your cylindrical tank in centimeters",
           "refill_threshold_liters": "Minimum volume increase (in liters) to automatically detect a refill",
           "noise_threshold_cm": "Ignore volume changes smaller than this (filters temperature fluctuations)",
-          "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations"
+          "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations",
+          "temperature_sensor": "Temperature sensor for thermal expansion compensation (recommended for outdoor tanks)",
+          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)"
         }
       }
     }
@@ -89,6 +97,9 @@
       },
       "heating_oil_last_refill_volume": {
         "name": "Last Refill Volume"
+      },
+      "heating_oil_normalized_volume": {
+        "name": "Normalized Volume"
       }
     }
   }

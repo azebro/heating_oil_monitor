@@ -21,9 +21,12 @@ from .const import (
     CONF_REFILL_THRESHOLD,
     CONF_NOISE_THRESHOLD,
     CONF_CONSUMPTION_DAYS,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_REFERENCE_TEMPERATURE,
     DEFAULT_REFILL_THRESHOLD,
     DEFAULT_NOISE_THRESHOLD,
     DEFAULT_CONSUMPTION_DAYS,
+    DEFAULT_REFERENCE_TEMPERATURE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -104,6 +107,20 @@ class HeatingOilMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         max=90,
                         mode=selector.NumberSelectorMode.BOX,
                         unit_of_measurement="days",
+                    )
+                ),
+                vol.Optional(CONF_TEMPERATURE_SENSOR): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_REFERENCE_TEMPERATURE, default=DEFAULT_REFERENCE_TEMPERATURE
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50,
+                        max=50,
+                        step=0.5,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="°C",
                     )
                 ),
             }
@@ -211,6 +228,26 @@ class HeatingOilMonitorOptionsFlow(config_entries.OptionsFlow):
                         max=90,
                         mode=selector.NumberSelectorMode.BOX,
                         unit_of_measurement="days",
+                    )
+                ),
+                vol.Optional(
+                    CONF_TEMPERATURE_SENSOR,
+                    default=self.config_entry.data.get(CONF_TEMPERATURE_SENSOR),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_REFERENCE_TEMPERATURE,
+                    default=self.config_entry.data.get(
+                        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50,
+                        max=50,
+                        step=0.5,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="°C",
                     )
                 ),
             }
