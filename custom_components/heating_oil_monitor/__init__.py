@@ -91,7 +91,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Heating Oil Monitor from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+
+    # Merge entry.data and entry.options (options take precedence)
+    config = {**entry.data, **entry.options}
+    hass.data[DOMAIN][entry.entry_id] = config
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

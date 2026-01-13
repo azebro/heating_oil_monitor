@@ -142,7 +142,7 @@ class HeatingOilMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return HeatingOilMonitorOptionsFlow(config_entry)
+        return HeatingOilMonitorOptionsFlow()
 
 
 class HeatingOilMonitorOptionsFlow(config_entries.OptionsFlow):
