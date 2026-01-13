@@ -27,10 +27,14 @@ from .const import (
     CONF_REFILL_THRESHOLD,
     CONF_NOISE_THRESHOLD,
     CONF_CONSUMPTION_DAYS,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_REFERENCE_TEMPERATURE,
     DEFAULT_REFILL_THRESHOLD,
     DEFAULT_NOISE_THRESHOLD,
     DEFAULT_CONSUMPTION_DAYS,
+    DEFAULT_REFERENCE_TEMPERATURE,
     KEROSENE_KWH_PER_LITER,
+    THERMAL_EXPANSION_COEFFICIENT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +67,42 @@ def calculate_volume(air_gap_cm: float, diameter_cm: float, length_cm: float) ->
     return round(volume_liters, 2)
 
 
+def apply_thermal_compensation(
+    measured_volume: float,
+    current_temp: float | None,
+    reference_temp: float,
+) -> float:
+    """
+    Apply thermal expansion compensation to measured volume.
+
+    Converts measured volume at current temperature to equivalent volume
+    at reference temperature. This normalizes for thermal expansion/contraction.
+
+    Args:
+        measured_volume: Volume measured at current temperature (liters)
+        current_temp: Current temperature (°C), None if unavailable
+        reference_temp: Reference temperature for normalization (°C)
+
+    Returns:
+        Temperature-normalized volume at reference temperature (liters)
+    """
+    if current_temp is None:
+        # No temperature sensor, return measured volume
+        return measured_volume
+
+    # Calculate temperature difference
+    temp_diff = current_temp - reference_temp
+
+    # Apply thermal expansion correction
+    # V_ref = V_measured / (1 + α × ΔT)
+    # This converts current volume to what it would be at reference temperature
+    correction_factor = 1 + (THERMAL_EXPANSION_COEFFICIENT * temp_diff)
+
+    normalized_volume = measured_volume / correction_factor
+
+    return round(normalized_volume, 2)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -77,6 +117,10 @@ async def async_setup_entry(
     refill_threshold = config.get(CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD)
     noise_threshold = config.get(CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD)
     consumption_days = config.get(CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS)
+    temperature_sensor = config.get(CONF_TEMPERATURE_SENSOR)
+    reference_temperature = config.get(
+        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
+    )
 
     if not all([air_gap_sensor, tank_diameter, tank_length]):
         _LOGGER.error("Missing required configuration")
@@ -90,6 +134,8 @@ async def async_setup_entry(
         refill_threshold,
         noise_threshold,
         consumption_days,
+        temperature_sensor,
+        reference_temperature,
     )
 
     sensors = [
@@ -101,6 +147,10 @@ async def async_setup_entry(
         HeatingOilLastRefillSensor(coordinator),
         HeatingOilLastRefillVolumeSensor(coordinator),
     ]
+
+    # Add normalized volume sensor if temperature sensor is configured
+    if temperature_sensor:
+        sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
 
     async_add_entities(sensors, True)
 
@@ -126,6 +176,10 @@ async def async_setup_platform(
     consumption_days = discovery_info.get(
         CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS
     )
+    temperature_sensor = discovery_info.get(CONF_TEMPERATURE_SENSOR)
+    reference_temperature = discovery_info.get(
+        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
+    )
 
     if not all([air_gap_sensor, tank_diameter, tank_length]):
         _LOGGER.error("Missing required configuration")
@@ -139,6 +193,8 @@ async def async_setup_platform(
         refill_threshold,
         noise_threshold,
         consumption_days,
+        temperature_sensor,
+        reference_temperature,
     )
 
     sensors = [
@@ -150,6 +206,10 @@ async def async_setup_platform(
         HeatingOilLastRefillSensor(coordinator),
         HeatingOilLastRefillVolumeSensor(coordinator),
     ]
+
+    # Add normalized volume sensor if temperature sensor is configured
+    if temperature_sensor:
+        sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
 
     async_add_entities(sensors, True)
 
@@ -166,6 +226,8 @@ class HeatingOilCoordinator:
         refill_threshold: float,
         noise_threshold: float,
         consumption_days: int,
+        temperature_sensor: str | None = None,
+        reference_temperature: float = DEFAULT_REFERENCE_TEMPERATURE,
     ) -> None:
         """Initialize the coordinator."""
         self.hass = hass
@@ -175,9 +237,12 @@ class HeatingOilCoordinator:
         self.refill_threshold = refill_threshold
         self.noise_threshold = noise_threshold
         self.consumption_days = consumption_days
+        self.temperature_sensor = temperature_sensor
+        self.reference_temperature = reference_temperature
 
         self._current_volume: float | None = None
         self._previous_volume: float | None = None
+        self._current_temperature: float | None = None
         self._last_refill_date: datetime | None = None
         self._last_refill_volume: float | None = None
         self._refill_history: list[dict] = []
@@ -189,11 +254,21 @@ class HeatingOilCoordinator:
             hass, [air_gap_sensor], self._handle_air_gap_change
         )
 
+        # Subscribe to temperature sensor changes if configured
+        if temperature_sensor:
+            async_track_state_change_event(
+                hass, [temperature_sensor], self._handle_temperature_change
+            )
+
         # Subscribe to manual refill events
         hass.bus.async_listen(f"{DOMAIN}_refill", self._handle_manual_refill)
 
         # Initialize volume from current sensor reading
         self._initialize_volume()
+
+        # Initialize temperature from current sensor reading
+        if temperature_sensor:
+            self._initialize_temperature()
 
         # Restore consumption history from database
         hass.async_create_task(self._restore_consumption_history())
@@ -213,6 +288,48 @@ class HeatingOilCoordinator:
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(f"Could not initialize volume from sensor: {e}")
+
+    def _initialize_temperature(self) -> None:
+        """Initialize temperature from current temperature sensor reading."""
+        if not self.temperature_sensor:
+            return
+
+        state = self.hass.states.get(self.temperature_sensor)
+        if state and state.state not in ("unknown", "unavailable"):
+            try:
+                self._current_temperature = float(state.state)
+                _LOGGER.info(
+                    f"Initialized temperature from sensor: {self._current_temperature} °C"
+                )
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(f"Could not initialize temperature from sensor: {e}")
+
+    @callback
+    async def _handle_temperature_change(self, event: Event) -> None:
+        """Handle temperature sensor state change."""
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in ("unknown", "unavailable"):
+            return
+
+        try:
+            self._current_temperature = float(new_state.state)
+            _LOGGER.debug(f"Temperature updated: {self._current_temperature} °C")
+            # Notify listeners so normalized volume sensor updates
+            self._notify_listeners()
+        except (ValueError, TypeError):
+            _LOGGER.warning(f"Invalid temperature value: {new_state.state}")
+            return
+
+    def get_normalized_volume(self) -> float | None:
+        """Get temperature-compensated volume at reference temperature."""
+        if self._current_volume is None:
+            return None
+
+        return apply_thermal_compensation(
+            self._current_volume,
+            self._current_temperature,
+            self.reference_temperature,
+        )
 
     async def _restore_consumption_history(self) -> None:
         """Restore consumption history from Home Assistant recorder."""
@@ -1014,3 +1131,72 @@ class HeatingOilLastRefillVolumeSensor(RestoreEntity, SensorEntity):
                     )
                 except (ValueError, TypeError):
                     pass
+
+
+class HeatingOilNormalizedVolumeSensor(RestoreEntity, SensorEntity):
+    """Sensor for temperature-normalized heating oil volume."""
+
+    def __init__(self, coordinator: HeatingOilCoordinator) -> None:
+        """Initialize the sensor."""
+        self._coordinator = coordinator
+        self._attr_name = "Heating Oil Normalized Volume"
+        self._attr_unique_id = f"{DOMAIN}_normalized_volume"
+        self._attr_device_class = SensorDeviceClass.VOLUME
+        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
+        self._attr_icon = "mdi:oil-temperature"
+
+        coordinator.add_listener(self.async_write_ha_state)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the sensor."""
+        return self._coordinator.get_normalized_volume()
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        return (
+            self._coordinator._current_volume is not None
+            and self._coordinator.temperature_sensor is not None
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        attrs = {
+            "reference_temperature": self._coordinator.reference_temperature,
+            "thermal_expansion_coefficient": THERMAL_EXPANSION_COEFFICIENT,
+        }
+
+        if self._coordinator._current_volume is not None:
+            attrs["measured_volume"] = self._coordinator._current_volume
+
+        if self._coordinator._current_temperature is not None:
+            attrs["current_temperature"] = self._coordinator._current_temperature
+
+            # Calculate the temperature correction being applied
+            if self._coordinator._current_volume is not None:
+                temp_diff = (
+                    self._coordinator._current_temperature
+                    - self._coordinator.reference_temperature
+                )
+                volume_diff = self._coordinator._current_volume - self.native_value
+                attrs["temperature_difference"] = round(temp_diff, 2)
+                attrs["volume_correction"] = round(volume_diff, 2)
+                attrs["description"] = (
+                    f"Volume normalized to {self._coordinator.reference_temperature}°C. "
+                    f"Current temp: {self._coordinator._current_temperature}°C, "
+                    f"Correction: {volume_diff:+.2f}L"
+                )
+        else:
+            attrs["description"] = "Temperature sensor unavailable"
+
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+
+        # Note: We don't restore state here as the normalized volume
+        # is always calculated from current volume and temperature
