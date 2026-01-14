@@ -641,24 +641,48 @@ class HeatingOilCoordinator:
         ]
 
     def get_daily_consumption(self) -> float:
-        """Calculate consumption for today (since midnight)."""
+        """Calculate average daily consumption over configured period."""
         if not self._consumption_history:
             return 0.0
 
-        # Get today's midnight in local time
-        today_midnight = dt_util.start_of_local_day()
-
-        # Sum all consumption since midnight today
-        today_consumption = [
+        # Get consumption data for the configured period
+        cutoff = dt_util.now() - timedelta(days=self.consumption_days)
+        recent = [
             entry["consumption"]
             for entry in self._consumption_history
-            if entry["timestamp"] >= today_midnight
+            if entry["timestamp"] > cutoff
         ]
 
-        return round(sum(today_consumption), 2) if today_consumption else 0.0
+        if not recent:
+            return 0.0
+
+        # Calculate actual days in the period to get accurate average
+        oldest_entry = min(
+            (
+                entry
+                for entry in self._consumption_history
+                if entry["timestamp"] > cutoff
+            ),
+            key=lambda x: x["timestamp"],
+            default=None,
+        )
+
+        if oldest_entry:
+            days_in_period = (
+                dt_util.now() - oldest_entry["timestamp"]
+            ).total_seconds() / 86400
+            if days_in_period < 0.1:  # Less than ~2.4 hours
+                days_in_period = 0.1
+        else:
+            days_in_period = 1.0
+
+        total_consumption = sum(recent)
+        average_daily = total_consumption / days_in_period
+
+        return round(average_daily, 2)
 
     def get_daily_consumption_kwh(self) -> float:
-        """Calculate energy consumption for today (since midnight) in kWh."""
+        """Calculate average daily energy consumption in kWh."""
         daily_liters = self.get_daily_consumption()
 
         # Convert liters to kWh using kerosene energy content
@@ -776,7 +800,7 @@ class HeatingOilVolumeSensor(RestoreEntity, SensorEntity):
 
 
 class HeatingOilDailyConsumptionSensor(RestoreEntity, SensorEntity):
-    """Sensor for daily heating oil consumption (today since midnight)."""
+    """Sensor for average daily heating oil consumption over configured period."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
         """Initialize the sensor."""
@@ -784,7 +808,7 @@ class HeatingOilDailyConsumptionSensor(RestoreEntity, SensorEntity):
         self._attr_name = "Heating Oil Daily Consumption"
         self._attr_unique_id = f"{DOMAIN}_daily_consumption"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:chart-line"
         self._last_value: float = 0.0
@@ -806,12 +830,34 @@ class HeatingOilDailyConsumptionSensor(RestoreEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes."""
-        today_midnight = dt_util.start_of_local_day()
-        return {
-            "period_start": today_midnight.isoformat(),
-            "period_type": "today",
-            "description": "Consumption since midnight today",
+        attrs = {
+            "calculation_period_days": self._coordinator.consumption_days,
+            "period_type": "rolling_average",
+            "description": f"Average daily consumption over last {self._coordinator.consumption_days} days",
         }
+
+        # Add information about the actual data period
+        if self._coordinator._consumption_history:
+            cutoff = dt_util.now() - timedelta(days=self._coordinator.consumption_days)
+            recent = [
+                entry
+                for entry in self._coordinator._consumption_history
+                if entry["timestamp"] > cutoff
+            ]
+
+            if recent:
+                oldest_entry = min(recent, key=lambda x: x["timestamp"])
+                days_in_period = (
+                    dt_util.now() - oldest_entry["timestamp"]
+                ).total_seconds() / 86400
+                total_consumption = sum(e["consumption"] for e in recent)
+
+                attrs["period_start"] = oldest_entry["timestamp"].isoformat()
+                attrs["actual_days_of_data"] = round(days_in_period, 1)
+                attrs["total_consumption_in_period"] = round(total_consumption, 2)
+                attrs["data_points"] = len(recent)
+
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
@@ -828,7 +874,7 @@ class HeatingOilDailyConsumptionSensor(RestoreEntity, SensorEntity):
 
 
 class HeatingOilDailyConsumptionEnergySensor(RestoreEntity, SensorEntity):
-    """Sensor for daily heating oil energy consumption in kWh (today since midnight)."""
+    """Sensor for average daily heating oil energy consumption in kWh over configured period."""
 
     def __init__(self, coordinator: HeatingOilCoordinator) -> None:
         """Initialize the sensor."""
@@ -836,7 +882,7 @@ class HeatingOilDailyConsumptionEnergySensor(RestoreEntity, SensorEntity):
         self._attr_name = "Heating Oil Daily Energy Consumption"
         self._attr_unique_id = f"{DOMAIN}_daily_consumption_kwh"
         self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_icon = "mdi:lightning-bolt"
         self._last_value: float = 0.0
@@ -858,18 +904,36 @@ class HeatingOilDailyConsumptionEnergySensor(RestoreEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes."""
-        today_midnight = dt_util.start_of_local_day()
         daily_liters = self._coordinator.get_daily_consumption()
 
         attrs = {
             "conversion_factor": f"{KEROSENE_KWH_PER_LITER} kWh/L",
-            "period_start": today_midnight.isoformat(),
-            "period_type": "today",
-            "description": "Energy consumption since midnight today",
+            "calculation_period_days": self._coordinator.consumption_days,
+            "period_type": "rolling_average",
+            "description": f"Average daily energy consumption over last {self._coordinator.consumption_days} days",
         }
 
         if daily_liters and daily_liters > 0:
-            attrs["daily_consumption_liters"] = daily_liters
+            attrs["average_daily_consumption_liters"] = daily_liters
+
+        # Add information about the actual data period
+        if self._coordinator._consumption_history:
+            cutoff = dt_util.now() - timedelta(days=self._coordinator.consumption_days)
+            recent = [
+                entry
+                for entry in self._coordinator._consumption_history
+                if entry["timestamp"] > cutoff
+            ]
+
+            if recent:
+                oldest_entry = min(recent, key=lambda x: x["timestamp"])
+                days_in_period = (
+                    dt_util.now() - oldest_entry["timestamp"]
+                ).total_seconds() / 86400
+
+                attrs["period_start"] = oldest_entry["timestamp"].isoformat()
+                attrs["actual_days_of_data"] = round(days_in_period, 1)
+                attrs["data_points"] = len(recent)
 
         return attrs
 
