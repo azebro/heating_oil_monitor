@@ -23,10 +23,18 @@ from .const import (
     CONF_CONSUMPTION_DAYS,
     CONF_TEMPERATURE_SENSOR,
     CONF_REFERENCE_TEMPERATURE,
+    CONF_REFILL_STABILIZATION_MINUTES,
+    CONF_REFILL_STABILITY_THRESHOLD,
+    CONF_READING_BUFFER_SIZE,
+    CONF_READING_DEBOUNCE_SECONDS,
     DEFAULT_REFILL_THRESHOLD,
     DEFAULT_NOISE_THRESHOLD,
     DEFAULT_CONSUMPTION_DAYS,
     DEFAULT_REFERENCE_TEMPERATURE,
+    DEFAULT_REFILL_STABILIZATION_MINUTES,
+    DEFAULT_REFILL_STABILITY_THRESHOLD,
+    DEFAULT_READING_BUFFER_SIZE,
+    DEFAULT_READING_DEBOUNCE_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,6 +129,50 @@ class HeatingOilMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         step=0.5,
                         mode=selector.NumberSelectorMode.BOX,
                         unit_of_measurement="°C",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_STABILIZATION_MINUTES,
+                    default=DEFAULT_REFILL_STABILIZATION_MINUTES,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5,
+                        max=180,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="min",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_STABILITY_THRESHOLD,
+                    default=DEFAULT_REFILL_STABILITY_THRESHOLD,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=50,
+                        step=0.5,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="L",
+                    )
+                ),
+                vol.Optional(
+                    CONF_READING_BUFFER_SIZE,
+                    default=DEFAULT_READING_BUFFER_SIZE,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=3,
+                        max=20,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_READING_DEBOUNCE_SECONDS,
+                    default=DEFAULT_READING_DEBOUNCE_SECONDS,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=10,
+                        max=300,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="sec",
                     )
                 ),
             }
@@ -248,6 +300,62 @@ class HeatingOilMonitorOptionsFlow(config_entries.OptionsFlow):
                         step=0.5,
                         mode=selector.NumberSelectorMode.BOX,
                         unit_of_measurement="°C",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_STABILIZATION_MINUTES,
+                    default=self.config_entry.data.get(
+                        CONF_REFILL_STABILIZATION_MINUTES,
+                        DEFAULT_REFILL_STABILIZATION_MINUTES,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5,
+                        max=180,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="min",
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFILL_STABILITY_THRESHOLD,
+                    default=self.config_entry.data.get(
+                        CONF_REFILL_STABILITY_THRESHOLD,
+                        DEFAULT_REFILL_STABILITY_THRESHOLD,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=50,
+                        step=0.5,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="L",
+                    )
+                ),
+                vol.Optional(
+                    CONF_READING_BUFFER_SIZE,
+                    default=self.config_entry.data.get(
+                        CONF_READING_BUFFER_SIZE,
+                        DEFAULT_READING_BUFFER_SIZE,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=3,
+                        max=20,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_READING_DEBOUNCE_SECONDS,
+                    default=self.config_entry.data.get(
+                        CONF_READING_DEBOUNCE_SECONDS,
+                        DEFAULT_READING_DEBOUNCE_SECONDS,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=10,
+                        max=300,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="sec",
                     )
                 ),
             }

@@ -14,6 +14,24 @@ DEFAULT_NOISE_THRESHOLD = 2  # cm
 DEFAULT_CONSUMPTION_DAYS = 7  # Days to average for consumption calculation
 DEFAULT_REFERENCE_TEMPERATURE = 15.0  # °C - typical reference temperature for fuel
 
+# Refill stabilization settings
+CONF_REFILL_STABILIZATION_MINUTES = "refill_stabilization_minutes"
+CONF_REFILL_STABILITY_THRESHOLD = "refill_stability_threshold_liters"
+DEFAULT_REFILL_STABILIZATION_MINUTES = (
+    60  # Minutes to wait for readings to stabilize after refill
+)
+DEFAULT_REFILL_STABILITY_THRESHOLD = (
+    5.0  # Liters - max variance to consider readings stable
+)
+
+# Reading filter settings (applies to all readings, not just refills)
+CONF_READING_BUFFER_SIZE = "reading_buffer_size"
+CONF_READING_DEBOUNCE_SECONDS = "reading_debounce_seconds"
+DEFAULT_READING_BUFFER_SIZE = (
+    5  # Number of readings to keep in buffer for median filter
+)
+DEFAULT_READING_DEBOUNCE_SECONDS = 60  # Minimum seconds between processing readings
+
 # Energy conversion constant for kerosene/heating oil
 # Kerosene has approximately 10 kWh of energy per liter
 KEROSENE_KWH_PER_LITER = 10.0
