@@ -29,10 +29,18 @@ from .const import (
     CONF_CONSUMPTION_DAYS,
     CONF_TEMPERATURE_SENSOR,
     CONF_REFERENCE_TEMPERATURE,
+    CONF_REFILL_STABILIZATION_MINUTES,
+    CONF_REFILL_STABILITY_THRESHOLD,
+    CONF_READING_BUFFER_SIZE,
+    CONF_READING_DEBOUNCE_SECONDS,
     DEFAULT_REFILL_THRESHOLD,
     DEFAULT_NOISE_THRESHOLD,
     DEFAULT_CONSUMPTION_DAYS,
     DEFAULT_REFERENCE_TEMPERATURE,
+    DEFAULT_REFILL_STABILIZATION_MINUTES,
+    DEFAULT_REFILL_STABILITY_THRESHOLD,
+    DEFAULT_READING_BUFFER_SIZE,
+    DEFAULT_READING_DEBOUNCE_SECONDS,
     KEROSENE_KWH_PER_LITER,
     THERMAL_EXPANSION_COEFFICIENT,
 )
@@ -121,6 +129,18 @@ async def async_setup_entry(
     reference_temperature = config.get(
         CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
     )
+    refill_stabilization_minutes = config.get(
+        CONF_REFILL_STABILIZATION_MINUTES, DEFAULT_REFILL_STABILIZATION_MINUTES
+    )
+    refill_stability_threshold = config.get(
+        CONF_REFILL_STABILITY_THRESHOLD, DEFAULT_REFILL_STABILITY_THRESHOLD
+    )
+    reading_buffer_size = config.get(
+        CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
+    )
+    reading_debounce_seconds = config.get(
+        CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
+    )
 
     _LOGGER.info(
         f"Setup config: temperature_sensor={temperature_sensor}, "
@@ -142,6 +162,10 @@ async def async_setup_entry(
         consumption_days,
         temperature_sensor,
         reference_temperature,
+        refill_stabilization_minutes,
+        refill_stability_threshold,
+        reading_buffer_size,
+        reading_debounce_seconds,
     )
 
     sensors = [
@@ -193,6 +217,18 @@ async def async_setup_platform(
     reference_temperature = discovery_info.get(
         CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
     )
+    refill_stabilization_minutes = discovery_info.get(
+        CONF_REFILL_STABILIZATION_MINUTES, DEFAULT_REFILL_STABILIZATION_MINUTES
+    )
+    refill_stability_threshold = discovery_info.get(
+        CONF_REFILL_STABILITY_THRESHOLD, DEFAULT_REFILL_STABILITY_THRESHOLD
+    )
+    reading_buffer_size = discovery_info.get(
+        CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
+    )
+    reading_debounce_seconds = discovery_info.get(
+        CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
+    )
 
     if not all([air_gap_sensor, tank_diameter, tank_length]):
         _LOGGER.error("Missing required configuration")
@@ -208,6 +244,10 @@ async def async_setup_platform(
         consumption_days,
         temperature_sensor,
         reference_temperature,
+        refill_stabilization_minutes,
+        refill_stability_threshold,
+        reading_buffer_size,
+        reading_debounce_seconds,
     )
 
     sensors = [
@@ -241,6 +281,10 @@ class HeatingOilCoordinator:
         consumption_days: int,
         temperature_sensor: str | None = None,
         reference_temperature: float = DEFAULT_REFERENCE_TEMPERATURE,
+        refill_stabilization_minutes: int = DEFAULT_REFILL_STABILIZATION_MINUTES,
+        refill_stability_threshold: float = DEFAULT_REFILL_STABILITY_THRESHOLD,
+        reading_buffer_size: int = DEFAULT_READING_BUFFER_SIZE,
+        reading_debounce_seconds: int = DEFAULT_READING_DEBOUNCE_SECONDS,
     ) -> None:
         """Initialize the coordinator."""
         self.hass = hass
@@ -252,6 +296,10 @@ class HeatingOilCoordinator:
         self.consumption_days = consumption_days
         self.temperature_sensor = temperature_sensor
         self.reference_temperature = reference_temperature
+        self.refill_stabilization_minutes = refill_stabilization_minutes
+        self.refill_stability_threshold = refill_stability_threshold
+        self.reading_buffer_size = reading_buffer_size
+        self.reading_debounce_seconds = reading_debounce_seconds
 
         self._current_volume: float | None = None
         self._previous_volume: float | None = None
@@ -261,6 +309,18 @@ class HeatingOilCoordinator:
         self._refill_history: list[dict] = []
         self._consumption_history: list[dict] = []
         self._listeners: list = []
+
+        # Refill stabilization state
+        self._refill_in_progress: bool = False
+        self._refill_start_time: datetime | None = None
+        self._refill_buffer: list[dict] = []  # Buffer of readings during refill
+        self._pre_refill_volume: float | None = None  # Volume before refill started
+
+        # Reading filter state (median filter with debouncing)
+        self._reading_buffer: list[dict] = []  # Rolling buffer of recent readings
+        self._last_processed_time: datetime | None = (
+            None  # Last time we processed a reading
+        )
 
         # Subscribe to air gap sensor changes
         async_track_state_change_event(
@@ -497,39 +557,106 @@ class HeatingOilCoordinator:
 
         await self._process_volume_reading(new_volume)
 
+    def _get_median_volume(self, readings: list[dict]) -> float:
+        """Calculate median volume from a list of readings."""
+        if not readings:
+            return 0.0
+
+        volumes = [r["volume"] for r in readings]
+        sorted_volumes = sorted(volumes)
+        mid = len(sorted_volumes) // 2
+
+        if len(sorted_volumes) % 2 == 0:
+            return (sorted_volumes[mid - 1] + sorted_volumes[mid]) / 2
+        return sorted_volumes[mid]
+
+    def _should_process_reading(self, now: datetime) -> bool:
+        """Check if enough time has passed since last processed reading."""
+        if self._last_processed_time is None:
+            return True
+
+        elapsed = (now - self._last_processed_time).total_seconds()
+        return elapsed >= self.reading_debounce_seconds
+
     async def _process_volume_reading(self, new_volume: float) -> None:
-        """Process a new volume reading with filtering logic."""
+        """Process a new volume reading with median filtering, debouncing, and refill stabilization."""
+        now = dt_util.now()
+
+        # Add reading to buffer
+        self._reading_buffer.append({"timestamp": now, "volume": new_volume})
+
+        # Keep only recent readings (last 5 minutes worth, or buffer size, whichever is more)
+        cutoff = now - timedelta(minutes=5)
+        buffer_size = int(self.reading_buffer_size)
+        self._reading_buffer = [
+            r for r in self._reading_buffer if r["timestamp"] > cutoff
+        ][
+            -max(buffer_size * 2, 10) :
+        ]  # Keep at most 2x buffer size
+
         if self._current_volume is None:
-            # First reading
-            self._current_volume = new_volume
-            self._previous_volume = new_volume
-            _LOGGER.info(f"Initial volume reading: {new_volume} L")
-            self._notify_listeners()
+            # First reading - use median of buffer if we have enough
+            if len(self._reading_buffer) >= buffer_size:
+                median_volume = self._get_median_volume(
+                    self._reading_buffer[-buffer_size:]
+                )
+                self._current_volume = median_volume
+                self._previous_volume = median_volume
+                self._last_processed_time = now
+                _LOGGER.info(
+                    f"Initial volume reading (median of {buffer_size}): {median_volume:.2f} L"
+                )
+                self._notify_listeners()
+            elif len(self._reading_buffer) == 1:
+                # Very first reading, just store it
+                self._current_volume = new_volume
+                self._previous_volume = new_volume
+                self._last_processed_time = now
+                _LOGGER.info(f"Initial volume reading: {new_volume:.2f} L")
+                self._notify_listeners()
             return
 
-        volume_change = new_volume - self._current_volume
+        # If refill is in progress, handle stabilization (bypasses normal filtering)
+        if self._refill_in_progress:
+            await self._handle_refill_stabilization(new_volume, now)
+            return
+
+        # Check for potential refill (significant increase) - check raw reading for quick detection
+        raw_change = new_volume - self._current_volume
+        if raw_change > self.refill_threshold:
+            await self._start_refill_stabilization(new_volume, now)
+            return
+
+        # Apply debouncing - only process if enough time has passed
+        if not self._should_process_reading(now):
+            _LOGGER.debug(
+                f"Debouncing: skipping reading {new_volume:.2f} L "
+                f"(last processed {(now - self._last_processed_time).total_seconds():.0f}s ago)"
+            )
+            return
+
+        # Get median of recent readings for noise reduction
+        if len(self._reading_buffer) >= buffer_size:
+            filtered_volume = self._get_median_volume(
+                self._reading_buffer[-buffer_size:]
+            )
+        else:
+            filtered_volume = new_volume
+
+        volume_change = filtered_volume - self._current_volume
 
         _LOGGER.debug(
-            f"Volume change detected: {volume_change:.2f} L "
-            f"({self._current_volume:.2f} → {new_volume:.2f} L)"
+            f"Volume change (filtered): {volume_change:.2f} L "
+            f"({self._current_volume:.2f} → {filtered_volume:.2f} L), "
+            f"raw reading: {new_volume:.2f} L"
         )
 
-        # Check for refill (significant increase)
-        if volume_change > self.refill_threshold:
-            refill_volume = volume_change
-            _LOGGER.info(
-                f"Refill detected: {refill_volume:.2f} L added "
-                f"({self._current_volume:.2f} → {new_volume:.2f} L)"
-            )
-            await self._record_refill(new_volume, refill_volume)
-            return
-
         # Ignore small increases (noise/temperature)
-        if volume_change > 0 and volume_change < self.noise_threshold:
+        if volume_change > 0 and abs(volume_change) < self.noise_threshold:
             _LOGGER.debug(f"Ignoring small increase: {volume_change:.2f} L")
             return
 
-        # Ignore unexpected increases
+        # Ignore unexpected increases (between noise threshold and refill threshold)
         if volume_change > 0:
             _LOGGER.warning(
                 f"Unexpected volume increase ignored: {volume_change:.2f} L "
@@ -537,16 +664,125 @@ class HeatingOilCoordinator:
             )
             return
 
-        # Valid decrease (consumption)
-        if volume_change < 0:
+        # Valid decrease (consumption) - must be significant
+        if volume_change < 0 and abs(volume_change) >= 0.1:  # At least 0.1L change
             consumption = abs(volume_change)
             self._record_consumption(consumption)
             self._previous_volume = self._current_volume
-            self._current_volume = new_volume
+            self._current_volume = filtered_volume
+            self._last_processed_time = now
             _LOGGER.debug(
-                f"Consumption: {consumption:.2f} L, New volume: {new_volume:.2f} L"
+                f"Consumption: {consumption:.2f} L, New volume: {filtered_volume:.2f} L"
             )
             self._notify_listeners()
+
+    async def _start_refill_stabilization(
+        self, new_volume: float, now: datetime
+    ) -> None:
+        """Start refill stabilization period."""
+        self._refill_in_progress = True
+        self._refill_start_time = now
+        self._pre_refill_volume = self._current_volume
+        self._refill_buffer = [{"timestamp": now, "volume": new_volume}]
+
+        _LOGGER.info(
+            f"🔄 Refill detected - starting {self.refill_stabilization_minutes} minute "
+            f"stabilization period. Pre-refill volume: {self._pre_refill_volume:.2f} L, "
+            f"First reading: {new_volume:.2f} L"
+        )
+
+    async def _handle_refill_stabilization(
+        self, new_volume: float, now: datetime
+    ) -> None:
+        """Handle readings during refill stabilization period."""
+        # Add reading to buffer
+        self._refill_buffer.append({"timestamp": now, "volume": new_volume})
+
+        # Calculate time elapsed since refill started
+        time_elapsed = now - self._refill_start_time
+        minutes_elapsed = time_elapsed.total_seconds() / 60
+
+        _LOGGER.debug(
+            f"Refill stabilization: {minutes_elapsed:.1f}/{self.refill_stabilization_minutes} min, "
+            f"buffer size: {len(self._refill_buffer)}, latest: {new_volume:.2f} L"
+        )
+
+        # Check if stabilization period has elapsed
+        if minutes_elapsed >= self.refill_stabilization_minutes:
+            await self._finalize_refill()
+            return
+
+        # Also check for early stabilization if we have enough readings
+        if len(self._refill_buffer) >= 5:
+            if self._check_readings_stable():
+                _LOGGER.info(
+                    f"✓ Readings stabilized early after {minutes_elapsed:.1f} minutes"
+                )
+                await self._finalize_refill()
+
+    def _check_readings_stable(self) -> bool:
+        """Check if recent readings are stable (low variance)."""
+        if len(self._refill_buffer) < 5:
+            return False
+
+        # Get last 5 readings
+        recent_volumes = [r["volume"] for r in self._refill_buffer[-5:]]
+
+        # Calculate variance
+        mean_volume = sum(recent_volumes) / len(recent_volumes)
+        variance = sum((v - mean_volume) ** 2 for v in recent_volumes) / len(
+            recent_volumes
+        )
+        std_dev = math.sqrt(variance)
+
+        # Check if readings are within stability threshold
+        max_diff = max(recent_volumes) - min(recent_volumes)
+
+        is_stable = max_diff <= self.refill_stability_threshold
+
+        _LOGGER.debug(
+            f"Stability check: max_diff={max_diff:.2f} L, std_dev={std_dev:.2f} L, "
+            f"threshold={self.refill_stability_threshold} L, stable={is_stable}"
+        )
+
+        return is_stable
+
+    def _get_stable_volume(self) -> float:
+        """Get stable volume from buffer using median of recent readings."""
+        if not self._refill_buffer:
+            return self._current_volume or 0.0
+
+        # Use median of last 5 readings (or all if fewer)
+        recent_volumes = [r["volume"] for r in self._refill_buffer[-5:]]
+        sorted_volumes = sorted(recent_volumes)
+        mid = len(sorted_volumes) // 2
+
+        if len(sorted_volumes) % 2 == 0:
+            median = (sorted_volumes[mid - 1] + sorted_volumes[mid]) / 2
+        else:
+            median = sorted_volumes[mid]
+
+        return round(median, 2)
+
+    async def _finalize_refill(self) -> None:
+        """Finalize refill with stable reading."""
+        stable_volume = self._get_stable_volume()
+        refill_volume = stable_volume - (self._pre_refill_volume or 0)
+
+        _LOGGER.info(
+            f"✓ Refill stabilized: {refill_volume:.2f} L added "
+            f"({self._pre_refill_volume:.2f} → {stable_volume:.2f} L). "
+            f"Processed {len(self._refill_buffer)} readings over "
+            f"{(dt_util.now() - self._refill_start_time).total_seconds() / 60:.1f} minutes"
+        )
+
+        # Clear stabilization state
+        self._refill_in_progress = False
+        self._refill_start_time = None
+        self._refill_buffer = []
+
+        # Record the refill with stable values
+        await self._record_refill(stable_volume, refill_volume)
 
     async def _record_refill(
         self, new_volume: float, refill_volume: float | None = None

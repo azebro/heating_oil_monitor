@@ -14,7 +14,11 @@
           "noise_threshold_cm": "Noise Filter Threshold (cm)",
           "consumption_calculation_days": "Consumption Calculation Period (days)",
           "temperature_sensor": "Temperature Sensor (Optional)",
-          "reference_temperature": "Reference Temperature (°C)"
+          "reference_temperature": "Reference Temperature (°C)",
+          "refill_stabilization_minutes": "Refill Stabilization Period (minutes)",
+          "refill_stability_threshold_liters": "Refill Stability Threshold (L)",
+          "reading_buffer_size": "Reading Buffer Size",
+          "reading_debounce_seconds": "Reading Debounce Time (seconds)"
         },
         "data_description": {
           "air_gap_sensor": "Select the sensor that measures the air gap from the top of the tank",
@@ -24,7 +28,11 @@
           "noise_threshold_cm": "Ignore volume changes smaller than this (filters temperature fluctuations)",
           "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations",
           "temperature_sensor": "Temperature sensor for thermal expansion compensation (recommended for outdoor tanks)",
-          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)"
+          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)",
+          "refill_stabilization_minutes": "Wait time after refill detection for readings to stabilize (filters erratic readings during delivery)",
+          "refill_stability_threshold_liters": "Maximum volume variance in recent readings to consider stable",
+          "reading_buffer_size": "Number of readings to use for median filtering (higher = more smoothing)",
+          "reading_debounce_seconds": "Minimum time between processing readings (filters rapid successive readings)"
         }
       }
     },
@@ -48,7 +56,11 @@
           "noise_threshold_cm": "Noise Filter Threshold (cm)",
           "consumption_calculation_days": "Consumption Calculation Period (days)",
           "temperature_sensor": "Temperature Sensor (Optional)",
-          "reference_temperature": "Reference Temperature (°C)"
+          "reference_temperature": "Reference Temperature (°C)",
+          "refill_stabilization_minutes": "Refill Stabilization Period (minutes)",
+          "refill_stability_threshold_liters": "Refill Stability Threshold (L)",
+          "reading_buffer_size": "Reading Buffer Size",
+          "reading_debounce_seconds": "Reading Debounce Time (seconds)"
         },
         "data_description": {
           "air_gap_sensor": "Select the sensor that measures the air gap from the top of the tank",
@@ -58,7 +70,11 @@
           "noise_threshold_cm": "Ignore volume changes smaller than this (filters temperature fluctuations)",
           "consumption_calculation_days": "Number of days to average for consumption and 'days until empty' calculations",
           "temperature_sensor": "Temperature sensor for thermal expansion compensation (recommended for outdoor tanks)",
-          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)"
+          "reference_temperature": "Reference temperature for volume normalization (typically 15°C)",
+          "refill_stabilization_minutes": "Wait time after refill detection for readings to stabilize (filters erratic readings during delivery)",
+          "refill_stability_threshold_liters": "Maximum volume variance in recent readings to consider stable",
+          "reading_buffer_size": "Number of readings to use for median filtering (higher = more smoothing)",
+          "reading_debounce_seconds": "Minimum time between processing readings (filters rapid successive readings)"
         }
       }
     }
