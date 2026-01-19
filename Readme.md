@@ -4,7 +4,7 @@
 [![License][license-shield]](LICENSE)
 [![hacs][hacsbadge]][hacs]
 
-*Monitor heating oil consumption in horizontal cylindrical tanks with advanced temperature compensation.*
+_Monitor heating oil consumption in horizontal cylindrical tanks with advanced temperature compensation._
 
 ---
 
@@ -30,6 +30,7 @@
 ### Installation
 
 1. Copy the `custom_components/heating_oil_monitor` directory to your Home Assistant's `custom_components` directory:
+
    ```
    config/
    └── custom_components/
@@ -46,34 +47,35 @@
 
 ### Basic Configuration
 
-| Setting | Description | Example |
-|---------|-------------|---------|
+| Setting            | Description                   | Example                    |
+| ------------------ | ----------------------------- | -------------------------- |
 | **Air Gap Sensor** | Your ultrasonic sensor entity | `sensor.oil_tank_distance` |
-| **Tank Diameter** | Interior diameter | `150` cm |
-| **Tank Length** | Interior length | `200` cm |
+| **Tank Diameter**  | Interior diameter             | `150` cm                   |
+| **Tank Length**    | Interior length               | `200` cm                   |
 
-**Optional settings**: Refill threshold, noise filtering, temperature sensor, and more.
+**Optional settings**: Refill threshold, noise filtering, temperature sensor, refill stabilization, and reading filter options. See [full documentation](DOCUMENTATION.md) for all configuration options.
 
 ## 📊 Available Sensors
 
 The integration creates 7-8 sensors (8th only with temperature sensor):
 
-| Sensor | Description |
-|--------|-------------|
-| **Heating Oil Volume** | Current tank volume in liters |
-| **Heating Oil Normalized Volume** | Temperature-compensated volume *(with temp sensor)* |
-| **Daily Consumption** | Oil consumed today (liters) |
-| **Daily Energy Consumption** | Energy consumed today (kWh) |
-| **Monthly Consumption** | Oil consumed this month |
-| **Days Until Empty** | Estimated days remaining |
-| **Last Refill** | Timestamp of last refill |
-| **Last Refill Volume** | Amount added in last refill |
+| Sensor                            | Description                                         |
+| --------------------------------- | --------------------------------------------------- |
+| **Heating Oil Volume**            | Current tank volume in liters                       |
+| **Heating Oil Normalized Volume** | Temperature-compensated volume _(with temp sensor)_ |
+| **Daily Consumption**             | Oil consumed today (liters)                         |
+| **Daily Energy Consumption**      | Energy consumed today (kWh)                         |
+| **Monthly Consumption**           | Oil consumed this month                             |
+| **Days Until Empty**              | Estimated days remaining                            |
+| **Last Refill**                   | Timestamp of last refill                            |
+| **Last Refill Volume**            | Amount added in last refill                         |
 
 ## 🌡️ Temperature Compensation
 
 For outdoor tanks, temperature changes cause oil to expand/contract (~0.095% per °C). This can create apparent volume changes of 10-40 liters that aren't actual consumption.
 
 **With temperature compensation**, the integration:
+
 - ✅ Distinguishes real consumption from thermal expansion
 - ✅ Provides accurate fuel quantity independent of temperature
 - ✅ Prevents false low-fuel warnings during cold weather
@@ -86,6 +88,7 @@ For outdoor tanks, temperature changes cause oil to expand/contract (~0.095% per
 **[→ Read the Complete Documentation](DOCUMENTATION.md)**
 
 Includes:
+
 - Detailed configuration guide
 - Architecture diagrams (Mermaid)
 - Volume calculation mathematics
@@ -96,14 +99,14 @@ Includes:
 
 ## 🔧 Services
 
-### heating_oil_monitor.manual_refill
+### heating_oil_monitor.record_refill
 
 Manually record a refill event.
 
 ```yaml
-service: heating_oil_monitor.manual_refill
+service: heating_oil_monitor.record_refill
 data:
-  volume: 1500  # Liters added (optional)
+  volume: 1500 # Liters added (optional)
 ```
 
 ## 📈 Example Automation

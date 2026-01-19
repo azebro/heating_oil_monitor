@@ -6,13 +6,14 @@
 2. [Features](#features)
 3. [Installation](#installation)
 4. [Configuration](#configuration)
-5. [Sensors](#sensors)
-6. [Temperature Compensation](#temperature-compensation)
-7. [Architecture](#architecture)
-8. [Volume Calculation](#volume-calculation)
-9. [Services](#services)
-10. [Troubleshooting](#troubleshooting)
-11. [Technical Reference](#technical-reference)
+5. [Advanced Settings](#advanced-settings)
+6. [Sensors](#sensors)
+7. [Temperature Compensation](#temperature-compensation)
+8. [Architecture](#architecture)
+9. [Volume Calculation](#volume-calculation)
+10. [Services](#services)
+11. [Troubleshooting](#troubleshooting)
+12. [Technical Reference](#technical-reference)
 
 ---
 
@@ -34,28 +35,33 @@ The Heating Oil Monitor is a custom Home Assistant integration designed to track
 ## Features
 
 ### 📊 Volume Monitoring
+
 - Real-time tank volume calculation
 - Temperature-normalized volume (optional)
 - Configurable tank dimensions
 
 ### 📈 Consumption Tracking
+
 - Daily consumption (since midnight)
 - Monthly consumption (since 1st of month)
 - Energy consumption in kWh
 - Historical data restoration from Home Assistant recorder
 
 ### 🔔 Smart Detection
+
 - Automatic refill detection with configurable threshold
 - Noise filtering for small fluctuations
 - Temperature-based volume correction
 
 ### 🌡️ Temperature Compensation
+
 - Optional external temperature sensor support
 - Compensates for thermal expansion/contraction
 - Configurable reference temperature
 - Shows both measured and normalized volumes
 
 ### 🔮 Predictive Features
+
 - Days until empty estimation
 - Average consumption calculation
 - Refill history tracking
@@ -67,6 +73,7 @@ The Heating Oil Monitor is a custom Home Assistant integration designed to track
 ### Method 1: Manual Installation
 
 1. Copy the `custom_components/heating_oil_monitor` directory to your Home Assistant's `custom_components` directory:
+
    ```
    /config/custom_components/heating_oil_monitor/
    ```
@@ -79,7 +86,7 @@ The Heating Oil Monitor is a custom Home Assistant integration designed to track
 
 ### Method 2: HACS (Future)
 
-*Note: This integration is not yet available in HACS*
+_Note: This integration is not yet available in HACS_
 
 ### Prerequisites
 
@@ -102,25 +109,30 @@ The Heating Oil Monitor is a custom Home Assistant integration designed to track
 
 #### Required Settings
 
-| Parameter | Description | Example | Unit |
-|-----------|-------------|---------|------|
-| **Air Gap Sensor** | Entity ID of your ultrasonic distance sensor | `sensor.oil_tank_distance` | - |
-| **Tank Diameter** | Interior diameter of the tank | `150` | cm |
-| **Tank Length** | Interior length of the tank | `200` | cm |
+| Parameter          | Description                                  | Example                    | Unit |
+| ------------------ | -------------------------------------------- | -------------------------- | ---- |
+| **Air Gap Sensor** | Entity ID of your ultrasonic distance sensor | `sensor.oil_tank_distance` | -    |
+| **Tank Diameter**  | Interior diameter of the tank                | `150`                      | cm   |
+| **Tank Length**    | Interior length of the tank                  | `200`                      | cm   |
 
 #### Optional Settings
 
-| Parameter | Description | Default | Unit |
-|-----------|-------------|---------|------|
-| **Refill Threshold** | Minimum volume increase to detect refill | `100` | L |
-| **Noise Threshold** | Small fluctuations to ignore | `2` | cm |
-| **Consumption Days** | Period for consumption averaging | `7` | days |
-| **Temperature Sensor** | External temperature sensor | None | - |
-| **Reference Temperature** | Baseline for volume normalization | `15` | °C |
+| Parameter                        | Description                                         | Default | Unit     |
+| -------------------------------- | --------------------------------------------------- | ------- | -------- |
+| **Refill Threshold**             | Minimum volume increase to detect refill            | `100`   | L        |
+| **Noise Threshold**              | Small fluctuations to ignore                        | `2`     | cm       |
+| **Consumption Days**             | Period for consumption averaging                    | `7`     | days     |
+| **Temperature Sensor**           | External temperature sensor                         | None    | -        |
+| **Reference Temperature**        | Baseline for volume normalization                   | `15`    | °C       |
+| **Refill Stabilization Minutes** | Time to wait for readings to stabilize after refill | `60`    | min      |
+| **Refill Stability Threshold**   | Max variance to consider readings stable            | `5`     | L        |
+| **Reading Buffer Size**          | Number of readings for median filter                | `5`     | readings |
+| **Reading Debounce Seconds**     | Minimum time between processing readings            | `60`    | sec      |
 
 ### Configuration Examples
 
 #### Basic Configuration (Indoor Tank)
+
 ```yaml
 Air Gap Sensor: sensor.oil_tank_ultrasonic
 Tank Diameter: 150 cm
@@ -129,6 +141,7 @@ Refill Threshold: 100 L
 ```
 
 #### Advanced Configuration (Outdoor Tank)
+
 ```yaml
 Air Gap Sensor: sensor.oil_tank_ultrasonic
 Tank Diameter: 150 cm
@@ -138,7 +151,57 @@ Noise Threshold: 2 cm
 Consumption Days: 14 days
 Temperature Sensor: sensor.outdoor_temperature
 Reference Temperature: 15 °C
+Refill Stabilization Minutes: 60 min
+Refill Stability Threshold: 5 L
+Reading Buffer Size: 5
+Reading Debounce Seconds: 60 sec
 ```
+
+---
+
+## Advanced Settings
+
+### Refill Stabilization
+
+During tank refills, readings can fluctuate as oil sloshes and settles. The refill stabilization feature:
+
+1. **Detects refill start** - When volume increases significantly
+2. **Buffers readings** - Collects readings during the stabilization window
+3. **Waits for stability** - Monitors until readings stabilize within threshold
+4. **Confirms refill** - Records final volume after stabilization
+
+**Configuration Parameters**:
+
+| Parameter                        | Description                                                             | Default |
+| -------------------------------- | ----------------------------------------------------------------------- | ------- |
+| **Refill Stabilization Minutes** | Maximum time to wait for readings to stabilize after detecting a refill | 60 min  |
+| **Refill Stability Threshold**   | Maximum variance between readings to consider the tank stable           | 5 L     |
+
+**Example**: If you notice refill volumes are incorrect because readings fluctuate during delivery, increase the stabilization time or decrease the stability threshold.
+
+### Reading Filter (Median Filter with Debouncing)
+
+The integration includes a median filter to smooth out sensor noise and prevent false readings from affecting consumption calculations.
+
+**How it works**:
+
+1. **Buffer readings** - Keeps a rolling buffer of recent air gap measurements
+2. **Apply median filter** - Uses the median value to reject outliers
+3. **Debounce** - Ignores readings that arrive too quickly after the last processed reading
+
+**Configuration Parameters**:
+
+| Parameter                    | Description                                            | Default |
+| ---------------------------- | ------------------------------------------------------ | ------- |
+| **Reading Buffer Size**      | Number of readings to keep in the median filter buffer | 5       |
+| **Reading Debounce Seconds** | Minimum time between processing consecutive readings   | 60 sec  |
+
+**When to adjust**:
+
+- **Noisy sensor**: Increase buffer size (e.g., 7-10) for more aggressive filtering
+- **Slow sensor**: Decrease buffer size (e.g., 3) to be more responsive
+- **Fast-updating sensor**: Increase debounce time to reduce processing
+- **Slow-updating sensor**: Decrease debounce time to capture all readings
 
 ---
 
@@ -147,12 +210,14 @@ Reference Temperature: 15 °C
 The integration creates the following sensors:
 
 ### 1. Heating Oil Volume
+
 - **Entity ID**: `sensor.heating_oil_volume`
 - **Unit**: Liters (L)
 - **Description**: Current oil volume in tank (measured/geometric)
 - **Updates**: When air gap sensor changes
 
 ### 2. Heating Oil Normalized Volume
+
 - **Entity ID**: `sensor.heating_oil_normalized_volume`
 - **Unit**: Liters (L)
 - **Description**: Temperature-compensated volume at reference temperature
@@ -160,6 +225,7 @@ The integration creates the following sensors:
 - **Only available**: When temperature sensor is configured
 
 **Attributes**:
+
 - `measured_volume`: Raw volume from geometric calculation
 - `current_temperature`: Current oil temperature
 - `reference_temperature`: Target normalization temperature
@@ -168,58 +234,69 @@ The integration creates the following sensors:
 - `thermal_expansion_coefficient`: 0.00095 per °C
 
 ### 3. Heating Oil Daily Consumption
+
 - **Entity ID**: `sensor.heating_oil_daily_consumption`
 - **Unit**: Liters (L)
 - **Description**: Oil consumed since midnight today
 - **Resets**: Daily at midnight
 
 **Attributes**:
+
 - `period_start`: Start of current day
 - `period_type`: "today"
 
 ### 4. Heating Oil Daily Energy Consumption
+
 - **Entity ID**: `sensor.heating_oil_daily_consumption_kwh`
 - **Unit**: Kilowatt-hours (kWh)
 - **Description**: Energy equivalent of daily consumption
 - **Conversion**: 10 kWh per liter of kerosene
 
 **Attributes**:
+
 - `conversion_factor`: "10 kWh/L"
 - `daily_consumption_liters`: Volume in liters
 
 ### 5. Heating Oil Monthly Consumption
+
 - **Entity ID**: `sensor.heating_oil_monthly_consumption`
 - **Unit**: Liters (L)
 - **Description**: Oil consumed since 1st of current month
 - **Resets**: Monthly on 1st
 
 **Attributes**:
+
 - `period_start`: Start of current month
 - `period_type`: "current_month"
 
 ### 6. Heating Oil Days Until Empty
+
 - **Entity ID**: `sensor.heating_oil_days_until_empty`
 - **Unit**: Days
 - **Description**: Estimated days until tank is empty based on recent consumption
 - **Calculation**: Current volume ÷ average daily consumption
 
 **Attributes**:
+
 - `calculation_period_days`: Number of days used for averaging
 - `average_daily_consumption`: Average consumption per day
 - `days_of_data`: Actual days of data available
 - `status`: "Live calculation" or "Using last calculated value"
 
 ### 7. Heating Oil Last Refill
+
 - **Entity ID**: `sensor.heating_oil_last_refill`
 - **Device Class**: Timestamp
 - **Description**: Date and time of last detected refill
 
 ### 8. Heating Oil Last Refill Volume
+
 - **Entity ID**: `sensor.heating_oil_last_refill_volume`
 - **Unit**: Liters (L)
 - **Description**: Volume added in last refill
 
 **Attributes**:
+
 - `last_refill_date`: ISO timestamp of last refill
 - `refill_count`: Number of refills in history
 - `total_refilled`: Total volume refilled in past 12 months
@@ -235,11 +312,11 @@ Heating oil expands and contracts with temperature at approximately **0.095% per
 ### Real-World Impact
 
 | Tank Size | Temperature Change | Apparent Volume Change |
-|-----------|-------------------|------------------------|
-| 1000 L | ±10°C | ±9.5 L |
-| 2000 L | ±10°C | ±19 L |
-| 1000 L | ±20°C | ±19 L |
-| 2000 L | ±20°C | ±38 L |
+| --------- | ------------------ | ---------------------- |
+| 1000 L    | ±10°C              | ±9.5 L                 |
+| 2000 L    | ±10°C              | ±19 L                  |
+| 1000 L    | ±20°C              | ±19 L                  |
+| 2000 L    | ±20°C              | ±38 L                  |
 
 ### How It Works
 
@@ -280,6 +357,7 @@ Where:
 - **Temperature Difference**: -20°C
 
 **Calculation**:
+
 ```
 Correction Factor = 1 + (0.00095 × -20) = 1 - 0.019 = 0.981
 Normalized Volume = 1500 / 0.981 ≈ 1529 L
@@ -290,12 +368,14 @@ Normalized Volume = 1500 / 0.981 ≈ 1529 L
 ### When to Use Temperature Compensation
 
 ✅ **Use temperature compensation when**:
+
 - Tank is outdoors or in an unheated space
 - Temperature swings exceed 10°C
 - You need precision better than ±10-20L
 - You're seeing unexplained volume fluctuations
 
 ❌ **Skip temperature compensation when**:
+
 - Tank is in climate-controlled space
 - Temperature is relatively stable
 - Precision requirements are modest
@@ -459,6 +539,7 @@ graph TD
 For a horizontal cylindrical tank with liquid height `h` from the bottom:
 
 **Circular Segment Area**:
+
 ```
 A = r² × arccos((r - h) / r) - (r - h) × √(2rh - h²)
 
@@ -468,6 +549,7 @@ Where:
 ```
 
 **Volume**:
+
 ```
 V = A × L / 1000
 
@@ -496,21 +578,25 @@ flowchart TD
 ### Example Calculation
 
 **Tank Specifications**:
+
 - Diameter: 150 cm
 - Length: 200 cm
 - Air Gap: 45 cm
 
 **Step 1**: Calculate liquid height
+
 ```
 h = 150 - 45 = 105 cm
 ```
 
 **Step 2**: Calculate radius
+
 ```
 r = 150 / 2 = 75 cm
 ```
 
 **Step 3**: Calculate circular segment area
+
 ```
 A = 75² × arccos((75 - 105) / 75) - (75 - 105) × √(2 × 75 × 105 - 105²)
 A = 5625 × arccos(-0.4) - (-30) × √(15750 - 11025)
@@ -520,6 +606,7 @@ A ≈ 13,212 cm²
 ```
 
 **Step 4**: Calculate volume
+
 ```
 V = 13,212 × 200 / 1000
 V ≈ 2,642 liters
@@ -529,28 +616,30 @@ V ≈ 2,642 liters
 
 ## Services
 
-### heating_oil_monitor.manual_refill
+### heating_oil_monitor.record_refill
 
 Manually record a refill event. Use this when you refill the tank but want to mark it in the system.
 
 #### Parameters
 
-| Parameter | Required | Type | Description |
-|-----------|----------|------|-------------|
-| `volume` | No | Float | Volume added in liters. If omitted, marks refill at current level |
+| Parameter | Required | Type  | Description                                                       |
+| --------- | -------- | ----- | ----------------------------------------------------------------- |
+| `volume`  | No       | Float | Volume added in liters. If omitted, marks refill at current level |
 
 #### Example Service Calls
 
 **Mark refill with known volume**:
+
 ```yaml
-service: heating_oil_monitor.manual_refill
+service: heating_oil_monitor.record_refill
 data:
   volume: 1500
 ```
 
 **Mark refill without volume** (just reset consumption history):
+
 ```yaml
-service: heating_oil_monitor.manual_refill
+service: heating_oil_monitor.record_refill
 data: {}
 ```
 
@@ -581,6 +670,7 @@ automation:
 **Problem**: Integration configured but sensors don't appear
 
 **Solutions**:
+
 1. Check that air gap sensor entity exists and is reporting valid data
 2. Restart Home Assistant after installation
 3. Check logs for errors: **Settings** → **System** → **Logs**
@@ -591,6 +681,7 @@ automation:
 **Problem**: Volume doesn't match expected values
 
 **Checklist**:
+
 - ✅ Verify tank dimensions are in **centimeters**
 - ✅ Confirm air gap sensor measures from top to liquid surface
 - ✅ Check that tank is horizontal (not vertical)
@@ -602,12 +693,14 @@ automation:
 **Problem**: Shows consumption when no oil was used
 
 **Possible Causes**:
+
 1. **Temperature fluctuations** - Add temperature sensor and use normalized volume
 2. **Noise threshold too low** - Increase from default 2 cm
 3. **Sensor drift** - Recalibrate ultrasonic sensor
 4. **Tank not level** - Check tank installation
 
 **Solution**:
+
 ```yaml
 # Increase noise threshold
 Noise Threshold: 5 cm
@@ -622,13 +715,15 @@ Reference Temperature: 15°C
 **Problem**: Refills don't trigger automatic detection
 
 **Check**:
+
 - Refill threshold setting (default 100L)
 - Actual volume added vs threshold
 - Check logs for "Refill detected" messages
 
 **Solution**: Lower refill threshold if adding smaller amounts
+
 ```yaml
-Refill Threshold: 50  # For smaller refills
+Refill Threshold: 50 # For smaller refills
 ```
 
 #### Temperature Compensation Not Working
@@ -636,6 +731,7 @@ Refill Threshold: 50  # For smaller refills
 **Problem**: Normalized volume sensor unavailable or incorrect
 
 **Checklist**:
+
 - ✅ Temperature sensor is configured in integration settings
 - ✅ Temperature sensor is reporting valid values (not "unknown" or "unavailable")
 - ✅ Temperature sensor unit is in Celsius
@@ -648,6 +744,7 @@ Refill Threshold: 50  # For smaller refills
 **Cause**: Insufficient consumption history
 
 **Requirements**:
+
 - At least 1 day of consumption data
 - Some measurable oil consumption
 - Valid volume reading
@@ -660,14 +757,18 @@ Refill Threshold: 50  # For smaller refills
 
 ### Constants
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `THERMAL_EXPANSION_COEFFICIENT` | 0.00095 per °C | Volume change per degree for kerosene |
-| `KEROSENE_KWH_PER_LITER` | 10.0 kWh/L | Energy content of heating oil |
-| `DEFAULT_REFILL_THRESHOLD` | 100 L | Minimum increase to detect refill |
-| `DEFAULT_NOISE_THRESHOLD` | 2 cm | Air gap fluctuations to ignore |
-| `DEFAULT_CONSUMPTION_DAYS` | 7 days | Period for consumption averaging |
-| `DEFAULT_REFERENCE_TEMPERATURE` | 15 °C | Standard reference temperature |
+| Constant                               | Value          | Description                                         |
+| -------------------------------------- | -------------- | --------------------------------------------------- |
+| `THERMAL_EXPANSION_COEFFICIENT`        | 0.00095 per °C | Volume change per degree for kerosene               |
+| `KEROSENE_KWH_PER_LITER`               | 10.0 kWh/L     | Energy content of heating oil                       |
+| `DEFAULT_REFILL_THRESHOLD`             | 100 L          | Minimum increase to detect refill                   |
+| `DEFAULT_NOISE_THRESHOLD`              | 2 cm           | Air gap fluctuations to ignore                      |
+| `DEFAULT_CONSUMPTION_DAYS`             | 7 days         | Period for consumption averaging                    |
+| `DEFAULT_REFERENCE_TEMPERATURE`        | 15 °C          | Standard reference temperature                      |
+| `DEFAULT_REFILL_STABILIZATION_MINUTES` | 60 min         | Time to wait for readings to stabilize after refill |
+| `DEFAULT_REFILL_STABILITY_THRESHOLD`   | 5.0 L          | Max variance to consider readings stable            |
+| `DEFAULT_READING_BUFFER_SIZE`          | 5              | Number of readings for median filter                |
+| `DEFAULT_READING_DEBOUNCE_SECONDS`     | 60 sec         | Minimum time between processing readings            |
 
 ### File Structure
 
@@ -687,12 +788,14 @@ custom_components/heating_oil_monitor/
 ### Data Storage
 
 #### Consumption History
+
 - **Storage**: In-memory list with timestamps
 - **Retention**: 60 days
 - **Persistence**: Restored from HA recorder on startup
 - **Format**: `[{"timestamp": datetime, "consumption": float}, ...]`
 
 #### Refill History
+
 - **Storage**: In-memory list
 - **Retention**: 12 months
 - **Format**: `[{"timestamp": datetime, "volume_added": float, "total_volume": float}, ...]`
@@ -810,6 +913,7 @@ cards:
 ## Version History
 
 ### v1.0.0 (Current)
+
 - ✨ Added temperature compensation
 - ✨ New normalized volume sensor
 - ✨ Configurable reference temperature
@@ -817,6 +921,7 @@ cards:
 - 📚 Comprehensive documentation
 
 ### v0.1.0
+
 - 🎉 Initial release
 - ✨ Basic volume calculation
 - ✨ Consumption tracking (daily/monthly)
@@ -836,6 +941,7 @@ cards:
 ### Contributing
 
 Contributions are welcome! Please:
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
@@ -852,5 +958,6 @@ This project is licensed under the MIT License.
 Developed by azebro for the Home Assistant community.
 
 **Special Thanks**:
+
 - Home Assistant Core Team
 - Community contributors and testers

@@ -14,6 +14,12 @@ DEFAULT_NOISE_THRESHOLD = 2  # cm
 DEFAULT_CONSUMPTION_DAYS = 7  # Days to average for consumption calculation
 DEFAULT_REFERENCE_TEMPERATURE = 15.0  # °C - typical reference temperature for fuel
 
+# History and persistence
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}_history"
+DEFAULT_CONSUMPTION_HISTORY_DAYS = 365
+DEFAULT_REFILL_HISTORY_MAX = 50
+
 # Refill stabilization settings
 CONF_REFILL_STABILIZATION_MINUTES = "refill_stabilization_minutes"
 CONF_REFILL_STABILITY_THRESHOLD = "refill_stability_threshold_liters"
