@@ -13,10 +13,11 @@ _Monitor heating oil consumption in horizontal cylindrical tanks with advanced t
 - **📊 Real-Time Volume Monitoring** - Accurate volume calculation using circular segment geometry
 - **🌡️ Temperature Compensation** - Accounts for thermal expansion in outdoor tanks
 - **📈 Consumption Tracking** - Daily, monthly, and historical consumption analytics
-- **🔔 Smart Refill Detection** - Automatically detects tank refills
+- **🔔 Smart Refill Detection** - Automatically detects tank refills with stabilization filtering
 - **🔮 Predictive Analytics** - Estimates days until tank is empty
 - **⚡ Energy Conversion** - Tracks consumption in both liters and kWh
 - **💾 Data Persistence** - Restores consumption history from Home Assistant recorder
+- **🎯 Advanced Filtering** - Median filtering and debouncing for stable, accurate readings
 
 ## 📋 Quick Start
 
