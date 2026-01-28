@@ -157,8 +157,8 @@ Developed by [azebro](https://github.com/azebro) for the Home Assistant communit
 
 **[📚 Full Documentation](DOCUMENTATION.md)** | **[🐛 Report Issues](https://github.com/azebro/heating_oil_monitor/issues)** | **[💬 Discussions](https://github.com/azebro/heating_oil_monitor/discussions)**
 
-[releases-shield]: https://img.shields.io/github/release/azebro/heating_oil_monitor.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/azebro/heating_oil_monitor?style=for-the-badge
 [releases]: https://github.com/azebro/heating_oil_monitor/releases
-[license-shield]: https://img.shields.io/github/license/azebro/heating_oil_monitor.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/azebro/heating_oil_monitor?style=for-the-badge
 [hacs]: https://github.com/hacs/integration
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
