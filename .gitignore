@@ -10,7 +10,7 @@ build/
 
 # Home Assistant
 config/.HA_VERSION
-config/home-assistant.log
+config/home-assistant.log*
 config/home-assistant_v2.db*
 config/.storage/
 config/deps/
@@ -18,6 +18,7 @@ config/tts/
 config/.cloud/
 config/.google.token
 config/secrets.yaml
+config/.ha_run.lock
 
 # Keep essential config files
 !config/configuration.yaml
@@ -41,6 +42,7 @@ docker-compose.override.yml
 *.tmp
 *.bak
 *~
-config/.ha_run.lock
-config/home-assistant.log.1
-config/.ha_run.lock
+
+# Jupyter Notebooks
+*.ipynb_checkpoints/
+*-checkpoint.ipynb
