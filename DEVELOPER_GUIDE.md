@@ -240,7 +240,7 @@ The `record_refill` service calls `coordinator.async_record_refill(volume)` dire
 | `tank_diameter_cm`                  | int       | (required) | cm    | Tank interior diameter              |
 | `tank_length_cm`                    | int       | (required) | cm    | Tank interior length                |
 | `refill_threshold_liters`           | int       | 100        | L     | Min increase to detect refill       |
-| `noise_threshold_cm`                | float     | 2.0        | L     | Small volume fluctuations to ignore |
+| `noise_threshold_liters`            | float     | 2.0        | L     | Small volume fluctuations to ignore |
 | `consumption_calculation_days`      | int       | 7          | days  | Rolling average window              |
 | `temperature_sensor`                | entity_id | None       | -     | Optional temp sensor                |
 | `reference_temperature`             | float     | 15.0       | C     | Normalization baseline              |
