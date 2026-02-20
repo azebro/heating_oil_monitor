@@ -104,7 +104,7 @@ class HeatingOilMonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         max=100,
                         step=0.1,
                         mode=selector.NumberSelectorMode.BOX,
-                        unit_of_measurement="cm",
+                        unit_of_measurement="L",
                     )
                 ),
                 vol.Optional(
@@ -266,7 +266,7 @@ class HeatingOilMonitorOptionsFlow(config_entries.OptionsFlow):
                         max=100,
                         step=0.1,
                         mode=selector.NumberSelectorMode.BOX,
-                        unit_of_measurement="cm",
+                        unit_of_measurement="L",
                     )
                 ),
                 vol.Optional(
