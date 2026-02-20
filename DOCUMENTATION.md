@@ -922,7 +922,11 @@ cards:
 
 ## Version History
 
-### v1.0.0 (Current)
+### v1.0.1 (Current)
+
+- Version bump
+
+### v1.0.0
 
 - ✨ Added temperature compensation
 - ✨ New normalized volume sensor

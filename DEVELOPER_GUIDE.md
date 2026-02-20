@@ -1,6 +1,6 @@
 # Heating Oil Monitor - Developer & Architecture Guide
 
-**Version**: 1.0.0 | **HA Minimum**: 2023.1 | **License**: MIT
+**Version**: 1.0.1 | **HA Minimum**: 2023.1 | **License**: MIT
 
 ---
 
