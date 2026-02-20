@@ -4,13 +4,13 @@ CONF_AIR_GAP_SENSOR = "air_gap_sensor"
 CONF_TANK_DIAMETER = "tank_diameter_cm"
 CONF_TANK_LENGTH = "tank_length_cm"
 CONF_REFILL_THRESHOLD = "refill_threshold_liters"
-CONF_NOISE_THRESHOLD = "noise_threshold_cm"
+CONF_NOISE_THRESHOLD = "noise_threshold_liters"
 CONF_CONSUMPTION_DAYS = "consumption_calculation_days"
 CONF_TEMPERATURE_SENSOR = "temperature_sensor"
 CONF_REFERENCE_TEMPERATURE = "reference_temperature"
 
 DEFAULT_REFILL_THRESHOLD = 100  # Liters
-DEFAULT_NOISE_THRESHOLD = 2  # cm
+DEFAULT_NOISE_THRESHOLD = 2  # Liters
 DEFAULT_CONSUMPTION_DAYS = 7  # Days to average for consumption calculation
 DEFAULT_REFERENCE_TEMPERATURE = 15.0  # °C - typical reference temperature for fuel
 

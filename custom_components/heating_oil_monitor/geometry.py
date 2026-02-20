@@ -10,6 +10,11 @@ def calculate_volume(air_gap_cm: float, diameter_cm: float, length_cm: float) ->
 
     No rounding is applied here; rounding must be done at sensor output only.
     """
+    if diameter_cm <= 0 or length_cm <= 0:
+        return 0.0
+    if air_gap_cm < 0:
+        air_gap_cm = 0.0
+
     radius = diameter_cm / 2
     liquid_height = diameter_cm - air_gap_cm
 

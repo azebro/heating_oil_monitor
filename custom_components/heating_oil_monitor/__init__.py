@@ -59,7 +59,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def handle_record_refill(call: ServiceCall) -> None:
         """Handle the record_refill service call."""
         volume = call.data.get("volume")
-        _LOGGER.info(f"Manual refill recorded. Volume: {volume}")
+        _LOGGER.info("Manual refill recorded. Volume: %s", volume)
 
         # Dispatch event for sensor to handle
         hass.bus.async_fire(f"{DOMAIN}_refill", {"volume": volume})
