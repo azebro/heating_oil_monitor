@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 
-from homeassistant.core import HomeAssistant, Event, callback
+from homeassistant.core import HomeAssistant, Event
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -69,6 +69,7 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
         refill_stability_threshold: float = DEFAULT_REFILL_STABILITY_THRESHOLD,
         reading_buffer_size: int = DEFAULT_READING_BUFFER_SIZE,
         reading_debounce_seconds: int = DEFAULT_READING_DEBOUNCE_SECONDS,
+        entry_id: str | None = None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(hass, _LOGGER, name=DOMAIN)
@@ -99,7 +100,8 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
             max_history_days=DEFAULT_CONSUMPTION_HISTORY_DAYS,
         )
 
-        self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        storage_key = f"{STORAGE_KEY}_{entry_id}" if entry_id else STORAGE_KEY
+        self._store = Store(hass, STORAGE_VERSION, storage_key)
         self._history_loaded: bool = False
         self._history_load_task = hass.async_create_task(self._async_load_history())
 
@@ -120,8 +122,6 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
             async_track_state_change_event(
                 hass, [temperature_sensor], self._handle_temperature_change
             )
-
-        hass.bus.async_listen(f"{DOMAIN}_refill", self._handle_manual_refill)
 
         self._initialize_volume()
 
@@ -245,7 +245,6 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
             except (ValueError, TypeError) as exc:
                 _LOGGER.debug("Could not initialize temperature from sensor: %s", exc)
 
-    @callback
     async def _handle_temperature_change(self, event: Event) -> None:
         """Handle temperature sensor state change."""
         new_state = event.data.get("new_state")
@@ -259,7 +258,6 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
         except (ValueError, TypeError):
             _LOGGER.warning("Invalid temperature value: %s", new_state.state)
 
-    @callback
     async def _handle_air_gap_change(self, event: Event) -> None:
         """Handle air gap sensor state change."""
         new_state = event.data.get("new_state")
@@ -456,7 +454,7 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
         self._current_volume = new_volume
 
         refill_record = {
-            "timestamp": refill_date,
+            "timestamp": refill_date.isoformat(),
             "volume_added": refill_volume,
             "total_volume": new_volume,
         }
@@ -464,12 +462,11 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
 
         cutoff = dt_util.now() - timedelta(days=365)
         self._refill_history = [
-            entry for entry in self._refill_history if entry["timestamp"] > cutoff
+            entry for entry in self._refill_history
+            if dt_util.parse_datetime(entry["timestamp"]) > cutoff
         ]
         if len(self._refill_history) > DEFAULT_REFILL_HISTORY_MAX:
             self._refill_history = self._refill_history[-DEFAULT_REFILL_HISTORY_MAX:]
-
-        self._consumption.clear()
 
         _LOGGER.info(
             "Refill recorded: %.2f L added on %s, new total: %.2f L",
@@ -480,11 +477,13 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
         self._publish()
         self._schedule_save()
 
-    @callback
-    async def _handle_manual_refill(self, event: Event) -> None:
-        """Handle manual refill service call."""
-        volume = event.data.get("volume")
+    async def async_record_refill(self, volume: float | None = None) -> None:
+        """Record a manual refill.
 
+        Called directly by the service handler. If *volume* is provided
+        (liters added), it is added to the current volume. Otherwise
+        the refill is marked with an unknown amount.
+        """
         if volume:
             if self._current_volume is not None:
                 new_total = self._current_volume + volume
@@ -498,12 +497,11 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
                 self._last_refill_volume = refill_amount
                 self._refill_history.append(
                     {
-                        "timestamp": self._last_refill_date,
+                        "timestamp": self._last_refill_date.isoformat(),
                         "volume_added": None,
                         "total_volume": self._current_volume,
                     }
                 )
-                self._consumption.clear()
                 _LOGGER.info(
                     "Manual refill marked at %s, current volume: %.2f L (volume added unknown)",
                     self._last_refill_date,

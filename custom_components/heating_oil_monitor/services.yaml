@@ -6,3 +6,7 @@ record_refill:
       name: Volume
       description: Volume added in liters (optional)
       example: 1000
+    entry_id:
+      name: Config Entry ID
+      description: Target a specific tank config entry (optional, defaults to all tanks)
+      example: abc123

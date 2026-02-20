@@ -12,40 +12,38 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfTime, UnitOfVolume
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .coordinator import HeatingOilCoordinator
 from .const import (
     DOMAIN,
-    CONF_AIR_GAP_SENSOR,
-    CONF_TANK_DIAMETER,
-    CONF_TANK_LENGTH,
-    CONF_REFILL_THRESHOLD,
-    CONF_NOISE_THRESHOLD,
-    CONF_CONSUMPTION_DAYS,
-    CONF_TEMPERATURE_SENSOR,
-    CONF_REFERENCE_TEMPERATURE,
-    CONF_REFILL_STABILIZATION_MINUTES,
-    CONF_REFILL_STABILITY_THRESHOLD,
-    CONF_READING_BUFFER_SIZE,
-    CONF_READING_DEBOUNCE_SECONDS,
-    DEFAULT_REFILL_THRESHOLD,
-    DEFAULT_NOISE_THRESHOLD,
-    DEFAULT_CONSUMPTION_DAYS,
-    DEFAULT_REFERENCE_TEMPERATURE,
-    DEFAULT_REFILL_STABILIZATION_MINUTES,
-    DEFAULT_REFILL_STABILITY_THRESHOLD,
-    DEFAULT_READING_BUFFER_SIZE,
-    DEFAULT_READING_DEBOUNCE_SECONDS,
     KEROSENE_KWH_PER_LITER,
     THERMAL_EXPANSION_COEFFICIENT,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _build_sensors(coordinator: HeatingOilCoordinator) -> list[SensorEntity]:
+    """Create sensor entities from a coordinator."""
+    sensors: list[SensorEntity] = [
+        HeatingOilVolumeSensor(coordinator),
+        HeatingOilDailyConsumptionSensor(coordinator),
+        HeatingOilDailyConsumptionEnergySensor(coordinator),
+        HeatingOilMonthlyConsumptionSensor(coordinator),
+        HeatingOilDaysUntilEmptySensor(coordinator),
+        HeatingOilLastRefillSensor(coordinator),
+        HeatingOilLastRefillVolumeSensor(coordinator),
+    ]
+
+    if coordinator.temperature_sensor:
+        sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
+
+    return sensors
 
 
 async def async_setup_entry(
@@ -54,153 +52,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform from a config entry."""
-    config = hass.data[DOMAIN][entry.entry_id]
-
-    air_gap_sensor = config.get(CONF_AIR_GAP_SENSOR)
-    tank_diameter = config.get(CONF_TANK_DIAMETER)
-    tank_length = config.get(CONF_TANK_LENGTH)
-    refill_threshold = config.get(CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD)
-    noise_threshold = config.get(CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD)
-    consumption_days = config.get(CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS)
-    temperature_sensor = config.get(CONF_TEMPERATURE_SENSOR)
-    reference_temperature = config.get(
-        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
-    )
-    refill_stabilization_minutes = config.get(
-        CONF_REFILL_STABILIZATION_MINUTES, DEFAULT_REFILL_STABILIZATION_MINUTES
-    )
-    refill_stability_threshold = config.get(
-        CONF_REFILL_STABILITY_THRESHOLD, DEFAULT_REFILL_STABILITY_THRESHOLD
-    )
-    reading_buffer_size = config.get(
-        CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
-    )
-    reading_debounce_seconds = config.get(
-        CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
-    )
-
-    _LOGGER.debug(
-        "Setup config: temperature_sensor=%s, reference_temperature=%s, all config keys=%s",
-        temperature_sensor,
-        reference_temperature,
-        list(config.keys()),
-    )
-
-    if not all([air_gap_sensor, tank_diameter, tank_length]):
-        _LOGGER.error("Missing required configuration")
-        return
-
-    coordinator = HeatingOilCoordinator(
-        hass,
-        air_gap_sensor,
-        tank_diameter,
-        tank_length,
-        refill_threshold,
-        noise_threshold,
-        consumption_days,
-        temperature_sensor,
-        reference_temperature,
-        refill_stabilization_minutes,
-        refill_stability_threshold,
-        reading_buffer_size,
-        reading_debounce_seconds,
-    )
-
-    sensors = [
-        HeatingOilVolumeSensor(coordinator),
-        HeatingOilDailyConsumptionSensor(coordinator),
-        HeatingOilDailyConsumptionEnergySensor(coordinator),
-        HeatingOilMonthlyConsumptionSensor(coordinator),
-        HeatingOilDaysUntilEmptySensor(coordinator),
-        HeatingOilLastRefillSensor(coordinator),
-        HeatingOilLastRefillVolumeSensor(coordinator),
-    ]
-
-    if temperature_sensor:
-        _LOGGER.debug(
-            "Adding normalized volume sensor with temperature sensor: %s",
-            temperature_sensor,
-        )
-        sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
-    else:
-        _LOGGER.debug(
-            "No temperature sensor configured, normalized volume sensor will not be added"
-        )
-
-    async_add_entities(sensors, True)
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up the sensor platform (YAML legacy support)."""
-    if discovery_info is None:
-        return
-
-    air_gap_sensor = discovery_info.get(CONF_AIR_GAP_SENSOR)
-    tank_diameter = discovery_info.get(CONF_TANK_DIAMETER)
-    tank_length = discovery_info.get(CONF_TANK_LENGTH)
-    refill_threshold = discovery_info.get(
-        CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD
-    )
-    noise_threshold = discovery_info.get(CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD)
-    consumption_days = discovery_info.get(
-        CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS
-    )
-    temperature_sensor = discovery_info.get(CONF_TEMPERATURE_SENSOR)
-    reference_temperature = discovery_info.get(
-        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
-    )
-    refill_stabilization_minutes = discovery_info.get(
-        CONF_REFILL_STABILIZATION_MINUTES, DEFAULT_REFILL_STABILIZATION_MINUTES
-    )
-    refill_stability_threshold = discovery_info.get(
-        CONF_REFILL_STABILITY_THRESHOLD, DEFAULT_REFILL_STABILITY_THRESHOLD
-    )
-    reading_buffer_size = discovery_info.get(
-        CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
-    )
-    reading_debounce_seconds = discovery_info.get(
-        CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
-    )
-
-    if not all([air_gap_sensor, tank_diameter, tank_length]):
-        _LOGGER.error("Missing required configuration")
-        return
-
-    coordinator = HeatingOilCoordinator(
-        hass,
-        air_gap_sensor,
-        tank_diameter,
-        tank_length,
-        refill_threshold,
-        noise_threshold,
-        consumption_days,
-        temperature_sensor,
-        reference_temperature,
-        refill_stabilization_minutes,
-        refill_stability_threshold,
-        reading_buffer_size,
-        reading_debounce_seconds,
-    )
-
-    sensors = [
-        HeatingOilVolumeSensor(coordinator),
-        HeatingOilDailyConsumptionSensor(coordinator),
-        HeatingOilDailyConsumptionEnergySensor(coordinator),
-        HeatingOilMonthlyConsumptionSensor(coordinator),
-        HeatingOilDaysUntilEmptySensor(coordinator),
-        HeatingOilLastRefillSensor(coordinator),
-        HeatingOilLastRefillVolumeSensor(coordinator),
-    ]
-
-    if temperature_sensor:
-        sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
-
-    async_add_entities(sensors, True)
+    coordinator: HeatingOilCoordinator = hass.data[DOMAIN][entry.entry_id]
+    sensors = _build_sensors(coordinator)
+    if sensors:
+        async_add_entities(sensors, True)
 
 
 class HeatingOilVolumeSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
@@ -212,9 +67,16 @@ class HeatingOilVolumeSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
         self._attr_name = "Heating Oil Volume"
         self._attr_unique_id = f"{DOMAIN}_volume"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:oil"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -253,6 +115,13 @@ class HeatingOilDailyConsumptionSensor(CoordinatorEntity, RestoreEntity, SensorE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:chart-line"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
         self._last_value: float = 0.0
 
     @property
@@ -330,6 +199,13 @@ class HeatingOilDailyConsumptionEnergySensor(
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_icon = "mdi:lightning-bolt"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
         self._last_value: float = 0.0
 
     @property
@@ -406,9 +282,16 @@ class HeatingOilMonthlyConsumptionSensor(CoordinatorEntity, RestoreEntity, Senso
         self._attr_name = "Heating Oil Monthly Consumption"
         self._attr_unique_id = f"{DOMAIN}_monthly_consumption"
         self._attr_device_class = SensorDeviceClass.VOLUME
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:chart-bar"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
         self._last_value: float = 0.0
 
     @property
@@ -461,6 +344,13 @@ class HeatingOilDaysUntilEmptySensor(CoordinatorEntity, RestoreEntity, SensorEnt
         self._attr_unique_id = f"{DOMAIN}_days_until_empty"
         self._attr_native_unit_of_measurement = UnitOfTime.DAYS
         self._attr_icon = "mdi:calendar-clock"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
         self._last_calculated_value: int | None = None
 
     @property
@@ -557,6 +447,13 @@ class HeatingOilLastRefillSensor(CoordinatorEntity, RestoreEntity, SensorEntity)
         self._attr_unique_id = f"{DOMAIN}_last_refill"
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
         self._attr_icon = "mdi:gas-station"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
 
     @property
     def native_value(self) -> datetime | None:
@@ -599,6 +496,13 @@ class HeatingOilLastRefillVolumeSensor(
         self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:gas-station"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -675,6 +579,13 @@ class HeatingOilNormalizedVolumeSensor(
         self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = UnitOfVolume.LITERS
         self._attr_icon = "mdi:oil-temperature"
+        self._attr_has_entity_name = True
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.air_gap_sensor)},
+            name="Heating Oil Tank",
+            manufacturer="Custom",
+            model="Horizontal Cylinder",
+        )
 
     @property
     def native_value(self) -> float | None:

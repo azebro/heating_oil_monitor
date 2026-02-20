@@ -120,7 +120,7 @@ _Note: This integration is not yet available in HACS_
 | Parameter                        | Description                                         | Default | Unit     |
 | -------------------------------- | --------------------------------------------------- | ------- | -------- |
 | **Refill Threshold**             | Minimum volume increase to detect refill            | `100`   | L        |
-| **Noise Threshold**              | Small fluctuations to ignore                        | `2`     | cm       |
+| **Noise Threshold**              | Small volume fluctuations to ignore                 | `2`     | L        |
 | **Consumption Days**             | Period for consumption averaging                    | `7`     | days     |
 | **Temperature Sensor**           | External temperature sensor                         | None    | -        |
 | **Reference Temperature**        | Baseline for volume normalization                   | `15`    | °C       |
@@ -147,7 +147,7 @@ Air Gap Sensor: sensor.oil_tank_ultrasonic
 Tank Diameter: 150 cm
 Tank Length: 200 cm
 Refill Threshold: 100 L
-Noise Threshold: 2 cm
+Noise Threshold: 2 L
 Consumption Days: 14 days
 Temperature Sensor: sensor.outdoor_temperature
 Reference Temperature: 15 °C
@@ -490,7 +490,7 @@ stateDiagram-v2
     CheckingChange --> Consumption: ΔV < 0
 
     LargeIncrease --> RefillDetected: Record refill
-    RefillDetected --> Monitoring: Clear consumption history
+    RefillDetected --> Monitoring: Update sensors
 
     SmallIncrease --> Monitoring: Ignore (noise/temp)
     UnexpectedIncrease --> Monitoring: Log warning
@@ -622,9 +622,10 @@ Manually record a refill event. Use this when you refill the tank but want to ma
 
 #### Parameters
 
-| Parameter | Required | Type  | Description                                                       |
-| --------- | -------- | ----- | ----------------------------------------------------------------- |
-| `volume`  | No       | Float | Volume added in liters. If omitted, marks refill at current level |
+| Parameter  | Required | Type   | Description                                                            |
+| ---------- | -------- | ------ | ---------------------------------------------------------------------- |
+| `volume`   | No       | Float  | Volume added in liters. If omitted, marks refill at current level.     |
+| `entry_id` | No       | String | Target a specific tank config entry. If omitted, applies to all tanks. |
 
 #### Example Service Calls
 
@@ -636,7 +637,16 @@ data:
   volume: 1500
 ```
 
-**Mark refill without volume** (just reset consumption history):
+**Mark refill for a specific tank** (multi-tank setup):
+
+```yaml
+service: heating_oil_monitor.record_refill
+data:
+  volume: 1500
+  entry_id: abc123def456
+```
+
+**Mark refill without volume** (marks refill at current level):
 
 ```yaml
 service: heating_oil_monitor.record_refill
@@ -703,7 +713,7 @@ automation:
 
 ```yaml
 # Increase noise threshold
-Noise Threshold: 5 cm
+Noise Threshold: 5 L
 
 # Add temperature sensor
 Temperature Sensor: sensor.outdoor_temperature
@@ -762,7 +772,7 @@ Refill Threshold: 50 # For smaller refills
 | `THERMAL_EXPANSION_COEFFICIENT`        | 0.00095 per °C | Volume change per degree for kerosene               |
 | `KEROSENE_KWH_PER_LITER`               | 10.0 kWh/L     | Energy content of heating oil                       |
 | `DEFAULT_REFILL_THRESHOLD`             | 100 L          | Minimum increase to detect refill                   |
-| `DEFAULT_NOISE_THRESHOLD`              | 2 cm           | Air gap fluctuations to ignore                      |
+| `DEFAULT_NOISE_THRESHOLD`              | 2 L            | Small volume fluctuations to ignore                 |
 | `DEFAULT_CONSUMPTION_DAYS`             | 7 days         | Period for consumption averaging                    |
 | `DEFAULT_REFERENCE_TEMPERATURE`        | 15 °C          | Standard reference temperature                      |
 | `DEFAULT_REFILL_STABILIZATION_MINUTES` | 60 min         | Time to wait for readings to stabilize after refill |
@@ -798,7 +808,7 @@ custom_components/heating_oil_monitor/
 
 - **Storage**: In-memory list
 - **Retention**: 12 months
-- **Format**: `[{"timestamp": datetime, "volume_added": float, "total_volume": float}, ...]`
+- **Format**: `[{"timestamp": "ISO-string", "volume_added": float, "total_volume": float}, ...]`
 
 ### Performance Considerations
 
