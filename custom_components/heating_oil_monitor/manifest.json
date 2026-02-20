@@ -6,6 +6,7 @@
   "documentation": "https://github.com/azebro/heating_oil_monitor",
   "issue_tracker": "https://github.com/azebro/heating_oil_monitor/issues",
   "requirements": [],
+  "integration_type": "device",
   "version": "1.0.0",
   "iot_class": "calculated"
 }

@@ -33,7 +33,7 @@ class ConsumptionTracker:
         self._daily_totals = {}
 
     def _prune(self, now: datetime) -> None:
-        """Keep only last 60 days of history."""
+        """Keep only entries within max_history_days."""
         cutoff_date = dt_util.as_local(now).date() - timedelta(
             days=self.max_history_days
         )

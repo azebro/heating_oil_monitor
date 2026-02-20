@@ -52,8 +52,6 @@ class RefillStabilizer:
         variance = sum((v - mean_volume) ** 2 for v in recent_volumes) / len(
             recent_volumes
         )
-        _ = math.sqrt(variance)
-
         max_diff = max(recent_volumes) - min(recent_volumes)
         return max_diff <= self.stability_threshold
 
