@@ -18,10 +18,22 @@ from .const import (
     CONF_REFILL_THRESHOLD,
     CONF_NOISE_THRESHOLD,
     CONF_CONSUMPTION_DAYS,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_REFERENCE_TEMPERATURE,
+    CONF_REFILL_STABILIZATION_MINUTES,
+    CONF_REFILL_STABILITY_THRESHOLD,
+    CONF_READING_BUFFER_SIZE,
+    CONF_READING_DEBOUNCE_SECONDS,
     DEFAULT_REFILL_THRESHOLD,
     DEFAULT_NOISE_THRESHOLD,
     DEFAULT_CONSUMPTION_DAYS,
+    DEFAULT_REFERENCE_TEMPERATURE,
+    DEFAULT_REFILL_STABILIZATION_MINUTES,
+    DEFAULT_REFILL_STABILITY_THRESHOLD,
+    DEFAULT_READING_BUFFER_SIZE,
+    DEFAULT_READING_DEBOUNCE_SECONDS,
 )
+from .coordinator import HeatingOilCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,10 +71,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def handle_record_refill(call: ServiceCall) -> None:
         """Handle the record_refill service call."""
         volume = call.data.get("volume")
+        entry_id = call.data.get("entry_id")
         _LOGGER.info("Manual refill recorded. Volume: %s", volume)
 
-        # Dispatch event for sensor to handle
-        hass.bus.async_fire(f"{DOMAIN}_refill", {"volume": volume})
+        # Resolve target coordinator(s)
+        coordinators: list[HeatingOilCoordinator] = []
+        if entry_id:
+            coord = hass.data[DOMAIN].get(entry_id)
+            if isinstance(coord, HeatingOilCoordinator):
+                coordinators.append(coord)
+            else:
+                _LOGGER.warning("No coordinator found for entry_id: %s", entry_id)
+        else:
+            coordinators = [
+                c
+                for c in hass.data[DOMAIN].values()
+                if isinstance(c, HeatingOilCoordinator)
+            ]
+
+        for coord in coordinators:
+            await coord.async_record_refill(volume)
 
     hass.services.async_register(
         DOMAIN,
@@ -71,6 +99,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=vol.Schema(
             {
                 vol.Optional("volume"): cv.positive_float,
+                vol.Optional("entry_id"): cv.string,
             }
         ),
     )
@@ -94,7 +123,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Merge entry.data and entry.options (options take precedence)
     config = {**entry.data, **entry.options}
-    hass.data[DOMAIN][entry.entry_id] = config
+
+    air_gap_sensor = config.get(CONF_AIR_GAP_SENSOR)
+    tank_diameter = config.get(CONF_TANK_DIAMETER)
+    tank_length = config.get(CONF_TANK_LENGTH)
+
+    if not all([air_gap_sensor, tank_diameter, tank_length]):
+        _LOGGER.error("Missing required configuration for entry %s", entry.entry_id)
+        return False
+
+    coordinator = HeatingOilCoordinator(
+        hass,
+        air_gap_sensor=air_gap_sensor,
+        tank_diameter=tank_diameter,
+        tank_length=tank_length,
+        refill_threshold=config.get(CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD),
+        noise_threshold=config.get(CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD),
+        consumption_days=config.get(CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS),
+        temperature_sensor=config.get(CONF_TEMPERATURE_SENSOR),
+        reference_temperature=config.get(
+            CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
+        ),
+        refill_stabilization_minutes=config.get(
+            CONF_REFILL_STABILIZATION_MINUTES,
+            DEFAULT_REFILL_STABILIZATION_MINUTES,
+        ),
+        refill_stability_threshold=config.get(
+            CONF_REFILL_STABILITY_THRESHOLD,
+            DEFAULT_REFILL_STABILITY_THRESHOLD,
+        ),
+        reading_buffer_size=config.get(
+            CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
+        ),
+        reading_debounce_seconds=config.get(
+            CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
+        ),
+        entry_id=entry.entry_id,
+    )
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

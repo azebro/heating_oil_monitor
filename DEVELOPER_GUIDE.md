@@ -9,32 +9,34 @@
 ```
 heating_oil_monitor/
 ├── custom_components/heating_oil_monitor/
-│   ├── __init__.py           # Entry point: setup, service registration, config entry lifecycle
+│   ├── __init__.py           # Entry point: setup, coordinator creation, service registration
 │   ├── manifest.json         # HA integration metadata (domain, version, iot_class)
-│   ├── config_flow.py        # ConfigFlow + OptionsFlow UI wizard (368 lines)
+│   ├── config_flow.py        # ConfigFlow + OptionsFlow UI wizard (279 lines)
 │   ├── const.py              # All constants, config keys, defaults, physics constants
-│   ├── coordinator.py        # Central data coordinator - business logic hub (681 lines)
-│   ├── geometry.py           # Horizontal cylinder volume calculation (31 lines)
-│   ├── consumption.py        # Daily consumption tracking and analytics (161 lines)
-│   ├── refill.py             # Refill detection and stabilization (80 lines)
-│   ├── thermal.py            # Temperature compensation / normalization (24 lines)
-│   ├── sensor.py             # 8 sensor entity classes (737 lines)
+│   ├── coordinator.py        # Central data coordinator - business logic hub (678 lines)
+│   ├── geometry.py           # Horizontal cylinder volume calculation (35 lines)
+│   ├── consumption.py        # Daily consumption tracking and analytics (160 lines)
+│   ├── refill.py             # Refill detection and stabilization (72 lines)
+│   ├── thermal.py            # Temperature compensation / normalization (23 lines)
+│   ├── sensor.py             # 8 sensor entity classes (647 lines)
 │   ├── services.yaml         # Service definitions (record_refill)
 │   ├── strings.json          # UI strings and translations
 │   └── translations/en.json  # English localization
 ├── tests/
+│   ├── conftest.py           # Shared fixtures: mock_hass, make_coordinator, consumption_tracker
 │   ├── test_geometry.py      # Volume calculation tests
 │   ├── test_consumption.py   # Consumption tracker tests
 │   ├── test_refill.py        # Refill stabilizer tests
 │   ├── test_thermal.py       # Temperature normalization tests
-│   └── test_coordinator.py   # Coordinator import test (placeholder)
+│   ├── test_coordinator.py   # Coordinator pipeline, refill, serialization, derived values
+│   ├── test_config_flow.py   # Config flow schema and class tests
+│   └── test_sensor.py        # Sensor attributes, device_info, state classes
 ├── experimentation/
 │   ├── kingspan_api.ipynb    # Kingspan Connect API exploration
 │   └── kingspan_wsdl.xml     # Kingspan SOAP API schema
 ├── config/                   # Dev container HA instance config
 ├── .devcontainer/            # Docker dev container setup
 ├── DOCUMENTATION.md          # End-user documentation
-├── REVIEW_REPORT.md          # Code review findings
 └── Readme.md                 # Quick start guide
 ```
 
@@ -47,15 +49,16 @@ heating_oil_monitor/
 ```
 __init__.py
     ├── const.py
+    ├── coordinator.py
+    │    ├── const.py
+    │    ├── geometry.py
+    │    ├── consumption.py
+    │    ├── refill.py
+    │    └── thermal.py
+    │         └── const.py
     └── sensor.py
          ├── const.py
-         └── coordinator.py
-              ├── const.py
-              ├── geometry.py
-              ├── consumption.py
-              ├── refill.py
-              └── thermal.py
-                   └── const.py
+         └── coordinator.py (retrieves from hass.data)
 ```
 
 ### Data Flow Pipeline
@@ -155,7 +158,7 @@ Dataclass tracking daily consumption aggregates.
 | `get_daily_consumption(now)`        | Rolling average over `consumption_days` |
 | `get_monthly_consumption(now)`      | Sum since 1st of current month          |
 | `get_days_until_empty(now, volume)` | `volume / avg_daily` estimate           |
-| `clear()`                           | Reset all history (called on refill)    |
+| `clear()`                           | Reset all history                       |
 | `set_daily_totals(dict)`            | Restore from storage                    |
 | `get_daily_totals()`                | Export for persistence                  |
 
@@ -181,10 +184,10 @@ Central hub extending `DataUpdateCoordinator[HeatingOilData]`.
 **Constructor** wires up:
 
 - State change listeners for air gap and temperature sensors
-- Bus listener for manual refill events
 - `ConsumptionTracker`, `RefillStabilizer`, HA `Store`
 - Initial volume/temperature from current sensor states
 - Async history load from Store + recorder fallback
+- Public `async_record_refill(volume)` method for the service handler
 
 **Key internal state**:
 
@@ -198,49 +201,53 @@ Central hub extending `DataUpdateCoordinator[HeatingOilData]`.
 
 All sensors extend `CoordinatorEntity, RestoreEntity, SensorEntity`.
 
-| Class                                    | Entity ID                 | Unit | State Class      | Device Class |
-| ---------------------------------------- | ------------------------- | ---- | ---------------- | ------------ |
-| `HeatingOilVolumeSensor`                 | `*_volume`                | L    | TOTAL            | VOLUME       |
-| `HeatingOilNormalizedVolumeSensor`       | `*_normalized_volume`     | L    | TOTAL            | VOLUME       |
-| `HeatingOilDailyConsumptionSensor`       | `*_daily_consumption`     | L    | MEASUREMENT      | -            |
-| `HeatingOilDailyConsumptionEnergySensor` | `*_daily_consumption_kwh` | kWh  | MEASUREMENT      | -            |
-| `HeatingOilMonthlyConsumptionSensor`     | `*_monthly_consumption`   | L    | TOTAL_INCREASING | VOLUME       |
-| `HeatingOilDaysUntilEmptySensor`         | `*_days_until_empty`      | days | -                | -            |
-| `HeatingOilLastRefillSensor`             | `*_last_refill`           | -    | -                | TIMESTAMP    |
-| `HeatingOilLastRefillVolumeSensor`       | `*_last_refill_volume`    | L    | TOTAL            | VOLUME       |
+| Class                                    | Entity ID                 | Unit | State Class | Device Class |
+| ---------------------------------------- | ------------------------- | ---- | ----------- | ------------ |
+| `HeatingOilVolumeSensor`                 | `*_volume`                | L    | MEASUREMENT | VOLUME       |
+| `HeatingOilNormalizedVolumeSensor`       | `*_normalized_volume`     | L    | TOTAL       | VOLUME       |
+| `HeatingOilDailyConsumptionSensor`       | `*_daily_consumption`     | L    | MEASUREMENT | -            |
+| `HeatingOilDailyConsumptionEnergySensor` | `*_daily_consumption_kwh` | kWh  | MEASUREMENT | -            |
+| `HeatingOilMonthlyConsumptionSensor`     | `*_monthly_consumption`   | L    | TOTAL       | VOLUME       |
+| `HeatingOilDaysUntilEmptySensor`         | `*_days_until_empty`      | days | -           | -            |
+| `HeatingOilLastRefillSensor`             | `*_last_refill`           | -    | -           | TIMESTAMP    |
+| `HeatingOilLastRefillVolumeSensor`       | `*_last_refill_volume`    | L    | TOTAL       | VOLUME       |
+
+All sensors set `device_info` to group under a single "Heating Oil Tank" device, keyed by the air gap sensor entity ID.
 
 ### config_flow.py
 
-Two flow classes:
+Two flow classes sharing a `_build_schema(defaults)` helper:
 
 - `HeatingOilMonitorConfigFlow` - Initial setup (validates sensor existence, sets unique_id)
 - `HeatingOilMonitorOptionsFlow` - Post-setup reconfiguration (updates `entry.data`)
 
 ### **init**.py
 
-- `async_setup()` - YAML legacy support, global service registration
-- `async_setup_entry()` - Merges entry.data + entry.options, forwards to sensor platform
+- `async_setup()` - YAML legacy support, global service registration (`record_refill`)
+- `async_setup_entry()` - Creates `HeatingOilCoordinator`, stores it in `hass.data[DOMAIN][entry_id]`, forwards to sensor platform
 - `async_unload_entry()` - Cleanup
 - `async_reload_entry()` - Triggered by options flow changes
+
+The `record_refill` service calls `coordinator.async_record_refill(volume)` directly. An optional `entry_id` field targets a specific tank; if omitted, all coordinators are called.
 
 ---
 
 ## Configuration Parameters
 
-| Key                                 | Type      | Default    | Unit  | Description                   |
-| ----------------------------------- | --------- | ---------- | ----- | ----------------------------- |
-| `air_gap_sensor`                    | entity_id | (required) | -     | Ultrasonic distance sensor    |
-| `tank_diameter_cm`                  | int       | (required) | cm    | Tank interior diameter        |
-| `tank_length_cm`                    | int       | (required) | cm    | Tank interior length          |
-| `refill_threshold_liters`           | int       | 100        | L     | Min increase to detect refill |
-| `noise_threshold_cm`                | float     | 2.0        | cm    | Small fluctuations to ignore  |
-| `consumption_calculation_days`      | int       | 7          | days  | Rolling average window        |
-| `temperature_sensor`                | entity_id | None       | -     | Optional temp sensor          |
-| `reference_temperature`             | float     | 15.0       | C     | Normalization baseline        |
-| `refill_stabilization_minutes`      | int       | 60         | min   | Max wait for stable readings  |
-| `refill_stability_threshold_liters` | float     | 5.0        | L     | Max variance for stability    |
-| `reading_buffer_size`               | int       | 5          | count | Median filter window          |
-| `reading_debounce_seconds`          | int       | 60         | sec   | Min time between readings     |
+| Key                                 | Type      | Default    | Unit  | Description                         |
+| ----------------------------------- | --------- | ---------- | ----- | ----------------------------------- |
+| `air_gap_sensor`                    | entity_id | (required) | -     | Ultrasonic distance sensor          |
+| `tank_diameter_cm`                  | int       | (required) | cm    | Tank interior diameter              |
+| `tank_length_cm`                    | int       | (required) | cm    | Tank interior length                |
+| `refill_threshold_liters`           | int       | 100        | L     | Min increase to detect refill       |
+| `noise_threshold_cm`                | float     | 2.0        | L     | Small volume fluctuations to ignore |
+| `consumption_calculation_days`      | int       | 7          | days  | Rolling average window              |
+| `temperature_sensor`                | entity_id | None       | -     | Optional temp sensor                |
+| `reference_temperature`             | float     | 15.0       | C     | Normalization baseline              |
+| `refill_stabilization_minutes`      | int       | 60         | min   | Max wait for stable readings        |
+| `refill_stability_threshold_liters` | float     | 5.0        | L     | Max variance for stability          |
+| `reading_buffer_size`               | int       | 5          | count | Median filter window                |
+| `reading_debounce_seconds`          | int       | 60         | sec   | Min time between readings           |
 
 ---
 
@@ -259,11 +266,12 @@ Two flow classes:
 
 Manually record a tank refill event.
 
-| Field    | Type  | Required | Description                                               |
-| -------- | ----- | -------- | --------------------------------------------------------- |
-| `volume` | float | No       | Liters added. If omitted, marks refill at current volume. |
+| Field      | Type   | Required | Description                                                            |
+| ---------- | ------ | -------- | ---------------------------------------------------------------------- |
+| `volume`   | float  | No       | Liters added. If omitted, marks refill at current volume.              |
+| `entry_id` | string | No       | Target a specific tank config entry. If omitted, applies to all tanks. |
 
-Implementation: `__init__.py` fires bus event `heating_oil_monitor_refill`; coordinator listens and calls `_record_refill()`.
+Implementation: `__init__.py` resolves the target coordinator(s) from `hass.data[DOMAIN]` and calls `coordinator.async_record_refill(volume)` directly.
 
 ---
 
@@ -271,7 +279,7 @@ Implementation: `__init__.py` fires bus event `heating_oil_monitor_refill`; coor
 
 ### Store (primary)
 
-- **Location**: `.storage/heating_oil_monitor_history`
+- **Location**: `.storage/heating_oil_monitor_history_{entry_id}`
 - **Contents**: consumption daily totals, refill history, last refill info
 - **Write strategy**: Delayed save (10-second debounce via `async_delay_save`)
 - **Read**: On coordinator init, async
@@ -313,17 +321,18 @@ Note: Tests require `homeassistant` package. Some tests use `pytest.importorskip
 ### Adding a New Sensor
 
 1. Create the sensor class in `sensor.py` extending `CoordinatorEntity, RestoreEntity, SensorEntity`
-2. Add the data field to `HeatingOilData` dataclass in `coordinator.py`
-3. Populate the new field in `coordinator._publish()`
-4. Add the sensor to the list in `async_setup_entry()` in `sensor.py`
-5. Add entity strings in `strings.json` and `translations/en.json`
-6. Add tests
+2. Add `device_info` using the shared `DeviceInfo(identifiers={(DOMAIN, coordinator.air_gap_sensor)}, ...)` pattern
+3. Add the data field to `HeatingOilData` dataclass in `coordinator.py`
+4. Populate the new field in `coordinator._publish()`
+5. Add the sensor to the list in `_build_sensors()` in `sensor.py`
+6. Add entity strings in `strings.json` and `translations/en.json`
+7. Add tests
 
 ### Adding a New Config Parameter
 
 1. Add `CONF_*` and `DEFAULT_*` constants in `const.py`
-2. Add to schema in `config_flow.py` (both ConfigFlow and OptionsFlow)
+2. Add to schema in `_build_schema()` in `config_flow.py` (shared by both flows)
 3. Add labels/descriptions in `strings.json` and `translations/en.json`
 4. Accept in `HeatingOilCoordinator.__init__()` and wire through
-5. Pass from `sensor.py:async_setup_entry()` config extraction
+5. Pass from `__init__.py:async_setup_entry()` config extraction
 6. Add tests

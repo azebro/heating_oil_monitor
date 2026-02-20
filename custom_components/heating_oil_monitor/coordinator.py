@@ -123,8 +123,6 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
                 hass, [temperature_sensor], self._handle_temperature_change
             )
 
-        hass.bus.async_listen(f"{DOMAIN}_refill", self._handle_manual_refill)
-
         self._initialize_volume()
 
         if temperature_sensor:
@@ -479,10 +477,13 @@ class HeatingOilCoordinator(DataUpdateCoordinator[HeatingOilData]):
         self._publish()
         self._schedule_save()
 
-    async def _handle_manual_refill(self, event: Event) -> None:
-        """Handle manual refill service call."""
-        volume = event.data.get("volume")
+    async def async_record_refill(self, volume: float | None = None) -> None:
+        """Record a manual refill.
 
+        Called directly by the service handler. If *volume* is provided
+        (liters added), it is added to the current volume. Otherwise
+        the refill is marked with an unknown amount.
+        """
         if volume:
             if self._current_volume is not None:
                 new_total = self._current_volume + volume

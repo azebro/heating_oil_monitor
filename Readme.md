@@ -108,6 +108,7 @@ Manually record a refill event.
 service: heating_oil_monitor.record_refill
 data:
   volume: 1500 # Liters added (optional)
+  entry_id: abc123 # Target specific tank (optional, defaults to all)
 ```
 
 ## 📈 Example Automation

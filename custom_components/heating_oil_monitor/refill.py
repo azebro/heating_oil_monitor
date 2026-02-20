@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-import math
 
 
 @dataclass
@@ -48,10 +47,6 @@ class RefillStabilizer:
             return False
 
         recent_volumes = [r["volume"] for r in self.buffer[-5:]]
-        mean_volume = sum(recent_volumes) / len(recent_volumes)
-        variance = sum((v - mean_volume) ** 2 for v in recent_volumes) / len(
-            recent_volumes
-        )
         max_diff = max(recent_volumes) - min(recent_volumes)
         return max_diff <= self.stability_threshold
 

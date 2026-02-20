@@ -15,33 +15,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .coordinator import HeatingOilCoordinator
 from .const import (
     DOMAIN,
-    CONF_AIR_GAP_SENSOR,
-    CONF_TANK_DIAMETER,
-    CONF_TANK_LENGTH,
-    CONF_REFILL_THRESHOLD,
-    CONF_NOISE_THRESHOLD,
-    CONF_CONSUMPTION_DAYS,
-    CONF_TEMPERATURE_SENSOR,
-    CONF_REFERENCE_TEMPERATURE,
-    CONF_REFILL_STABILIZATION_MINUTES,
-    CONF_REFILL_STABILITY_THRESHOLD,
-    CONF_READING_BUFFER_SIZE,
-    CONF_READING_DEBOUNCE_SECONDS,
-    DEFAULT_REFILL_THRESHOLD,
-    DEFAULT_NOISE_THRESHOLD,
-    DEFAULT_CONSUMPTION_DAYS,
-    DEFAULT_REFERENCE_TEMPERATURE,
-    DEFAULT_REFILL_STABILIZATION_MINUTES,
-    DEFAULT_REFILL_STABILITY_THRESHOLD,
-    DEFAULT_READING_BUFFER_SIZE,
-    DEFAULT_READING_DEBOUNCE_SECONDS,
     KEROSENE_KWH_PER_LITER,
     THERMAL_EXPANSION_COEFFICIENT,
 )
@@ -49,56 +28,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _create_coordinator_and_sensors(
-    hass: HomeAssistant,
-    config: dict,
-    entry_id: str | None = None,
-) -> tuple[HeatingOilCoordinator | None, list[SensorEntity]]:
-    """Create coordinator and sensor entities from config."""
-    air_gap_sensor = config.get(CONF_AIR_GAP_SENSOR)
-    tank_diameter = config.get(CONF_TANK_DIAMETER)
-    tank_length = config.get(CONF_TANK_LENGTH)
-    refill_threshold = config.get(CONF_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD)
-    noise_threshold = config.get(CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD)
-    consumption_days = config.get(CONF_CONSUMPTION_DAYS, DEFAULT_CONSUMPTION_DAYS)
-    temperature_sensor = config.get(CONF_TEMPERATURE_SENSOR)
-    reference_temperature = config.get(
-        CONF_REFERENCE_TEMPERATURE, DEFAULT_REFERENCE_TEMPERATURE
-    )
-    refill_stabilization_minutes = config.get(
-        CONF_REFILL_STABILIZATION_MINUTES, DEFAULT_REFILL_STABILIZATION_MINUTES
-    )
-    refill_stability_threshold = config.get(
-        CONF_REFILL_STABILITY_THRESHOLD, DEFAULT_REFILL_STABILITY_THRESHOLD
-    )
-    reading_buffer_size = config.get(
-        CONF_READING_BUFFER_SIZE, DEFAULT_READING_BUFFER_SIZE
-    )
-    reading_debounce_seconds = config.get(
-        CONF_READING_DEBOUNCE_SECONDS, DEFAULT_READING_DEBOUNCE_SECONDS
-    )
-
-    if not all([air_gap_sensor, tank_diameter, tank_length]):
-        _LOGGER.error("Missing required configuration")
-        return None, []
-
-    coordinator = HeatingOilCoordinator(
-        hass,
-        air_gap_sensor,
-        tank_diameter,
-        tank_length,
-        refill_threshold,
-        noise_threshold,
-        consumption_days,
-        temperature_sensor,
-        reference_temperature,
-        refill_stabilization_minutes,
-        refill_stability_threshold,
-        reading_buffer_size,
-        reading_debounce_seconds,
-        entry_id=entry_id,
-    )
-
+def _build_sensors(coordinator: HeatingOilCoordinator) -> list[SensorEntity]:
+    """Create sensor entities from a coordinator."""
     sensors: list[SensorEntity] = [
         HeatingOilVolumeSensor(coordinator),
         HeatingOilDailyConsumptionSensor(coordinator),
@@ -109,10 +40,10 @@ def _create_coordinator_and_sensors(
         HeatingOilLastRefillVolumeSensor(coordinator),
     ]
 
-    if temperature_sensor:
+    if coordinator.temperature_sensor:
         sensors.append(HeatingOilNormalizedVolumeSensor(coordinator))
 
-    return coordinator, sensors
+    return sensors
 
 
 async def async_setup_entry(
@@ -121,24 +52,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform from a config entry."""
-    config = hass.data[DOMAIN][entry.entry_id]
-    coordinator, sensors = _create_coordinator_and_sensors(hass, config, entry_id=entry.entry_id)
-    if coordinator:
-        hass.data[DOMAIN][entry.entry_id] = coordinator
-    if sensors:
-        async_add_entities(sensors, True)
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up the sensor platform (YAML legacy support)."""
-    if discovery_info is None:
-        return
-    coordinator, sensors = _create_coordinator_and_sensors(hass, discovery_info)
+    coordinator: HeatingOilCoordinator = hass.data[DOMAIN][entry.entry_id]
+    sensors = _build_sensors(coordinator)
     if sensors:
         async_add_entities(sensors, True)
 
@@ -162,6 +77,9 @@ class HeatingOilVolumeSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
             manufacturer="Custom",
             model="Horizontal Cylinder",
         )
+
+    @property
+    def native_value(self) -> float | None:
         """Return the state of the sensor."""
         data = self.coordinator.data
         if data is None or data.volume is None:
